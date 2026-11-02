@@ -11,7 +11,8 @@ import asyncio
 import json
 import os
 import random
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 
@@ -65,16 +66,18 @@ def _strip_code_fence(s: str) -> str:
         if t.rstrip().endswith("```"):
             t = t.rstrip()[:-3]
         t = t.strip()
-    if t[:1] not in ("{", "["):
-        i_obj, i_arr = t.find("{"), t.find("[")
-        cands = [i for i in (i_obj, i_arr) if i != -1]
-        if cands:
-            start = min(cands)
-            open_ch = t[start]
-            close_ch = "}" if open_ch == "{" else "]"
-            end = t.rfind(close_ch)
-            if end > start:
-                t = t[start:end + 1]
+    # Carve out the JSON span. Done unconditionally: a model puts prose BEFORE the JSON
+    # ("Here is the result:") or AFTER it ("Hope that helps!"), and the trailing case used
+    # to be missed because text already starting with { or [ skipped this block entirely.
+    # When t is clean JSON the span is the whole string, so this is a no-op.
+    i_obj, i_arr = t.find("{"), t.find("[")
+    cands = [i for i in (i_obj, i_arr) if i != -1]
+    if cands:
+        start = min(cands)
+        close_ch = "}" if t[start] == "{" else "]"
+        end = t.rfind(close_ch)
+        if end > start:
+            t = t[start:end + 1]
     return t.strip()
 
 

@@ -474,8 +474,16 @@ def _nuclei_to_finding(nf: dict) -> dict:
 async def run_range(ctx: ScanContext, ports: str) -> tuple[list[dict], str]:
     """Expand a CIDR -> discover live hosts -> deep-scan each in parallel ->
     run nuclei over the discovered services -> aggregate findings."""
-    from .tools import (ToolError, expand_hosts, has_nuclei, nuclei_scan,
-                        ping_sweep, port_scan, service_detect, vuln_scan)
+    from .tools import (
+        ToolError,
+        expand_hosts,
+        has_nuclei,
+        nuclei_scan,
+        ping_sweep,
+        port_scan,
+        service_detect,
+        vuln_scan,
+    )
     concurrency = max(1, ctx.concurrency)
     _out(ctx, f"[*] pwner range scan · target={ctx.target}\n")
     try:

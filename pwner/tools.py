@@ -1,9 +1,11 @@
 """Network pentest tools for pwner — nmap wrapper + DNS/banner/HTTP + safety rails.
 
-Every tool is READ-ONLY / non-destructive. The scope guard refuses any host
-outside the authorized target. Nmap is run with detection-only args; intrusive
-NSE categories (brute, dos, exploit) are block-listed in the generic run_nmap
-escape hatch.
+The authorization boundary is the scope guard: build_dispatch wraps EVERY tool with
+_enforce_scope, which rejects any host or network argument outside the operator's
+authorized target before the tool body runs. Tools are in-scope-by-default, so one
+that forgets its own _require_scope call is still guarded. High-impact actions
+(brute-force, exploitation) additionally pass a consent gate, and intrusive NSE
+categories (brute, dos, exploit) are block-listed in the generic run_nmap escape hatch.
 """
 from __future__ import annotations
 
@@ -20,8 +22,10 @@ import socket
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
+from urllib.parse import urlsplit
 
 NMAP_BIN = os.environ.get("PWNER_NMAP", "nmap")
 NUCLEI_BIN = os.environ.get("PWNER_NUCLEI", "nuclei")
@@ -60,7 +64,7 @@ class OperatorChannel:
     def __init__(self, managed: bool = False):
         self._buf: list[str] = []
         self.managed = managed
-        self._consent_fut: "asyncio.Future[str] | None" = None
+        self._consent_fut: asyncio.Future[str] | None = None
         self.consent_text: str | None = None
 
     def push(self, line: str) -> None:
@@ -305,6 +309,91 @@ def _require_scope(host: str, ctx: ScanContext) -> None:
         raise ToolError(f"{host!r} is outside the authorized scope ({ctx.target!r})")
 
 
+# ── Central scope enforcement ────────────────────────────────────────────────
+# Tool arguments whose value names a network host or network. Every tool call is
+# checked against these in build_dispatch, so being in scope is the default: a new
+# tool, or one whose body forgets _require_scope, still cannot reach a host the
+# operator never authorized. `domain` is deliberately NOT here — in the AD tools it
+# is a Kerberos realm ("CORP.LOCAL"), not a host to send traffic to, and dns_enum
+# asks a public resolver about a name rather than touching the target.
+_SCOPED_ARG_NAMES = ("target", "targets", "host", "hosts", "dc_ip", "server", "ip")
+
+# Tools with no network target to check: scope setup itself, local bookkeeping,
+# offline cracking, third-party lookups, and our own attacker-side infrastructure
+# (listener/exfil bind locally; shell_exec runs over an already-established session).
+_SCOPE_EXEMPT_TOOLS = frozenset({
+    "set_target", "note", "report_finding", "get_findings", "ledger", "request_consent",
+    "attacker_info", "exploit_search", "hash_crack", "listener", "exfil", "shell_exec",
+})
+
+
+def _hosts_in_value(value: Any) -> list[str]:
+    """Pull the host/network literals out of one tool argument. Accepts a bare host or
+    IP, a CIDR, 'host:port', an absolute URL, a comma-separated list, or a list of any
+    of those (nuclei_scan takes up to 500 targets as a list)."""
+    if value is None or isinstance(value, bool):
+        return []
+    if isinstance(value, (list, tuple, set)):
+        out: list[str] = []
+        for v in value:
+            out.extend(_hosts_in_value(v))
+        return out
+    text = str(value).strip()
+    if not text:
+        return []
+    found: list[str] = []
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "://" in part:  # http://host:8443/login -> host
+            part = urlsplit(part).hostname or ""
+        elif part.startswith("["):  # [2001:db8::1]:443 -> 2001:db8::1
+            part = part[1:].split("]", 1)[0]
+        elif part.count(":") == 1 and "/" not in part:  # host:445 -> host (IPv6 kept whole)
+            part = part.split(":", 1)[0]
+        part = part.strip()
+        if part:
+            found.append(part)
+    return found
+
+
+def _literal_in_scope(literal: str, ctx: ScanContext) -> bool:
+    """Scope test for one literal, which may be a host OR a CIDR network. A network
+    argument (ping_sweep over a subnet) has to sit entirely inside the authorization,
+    so a /24 scope can never be widened to a /16 by a tool argument."""
+    if not (ctx.target or "").strip():
+        return True  # no scope configured yet — set_target establishes it
+    if "/" not in literal:
+        return in_scope(literal, ctx)
+    try:
+        net = ipaddress.ip_network(literal, strict=False)
+    except ValueError:
+        return in_scope(literal, ctx)  # not a network after all (e.g. a URL path slipped in)
+    nets = [n for n in ctx.scope_networks() if n.version == net.version]
+    if nets:
+        return any(net.subnet_of(n) for n in nets)
+    if net.num_addresses == 1:  # /32 or /128 of a single-host scope
+        return in_scope(str(net.network_address), ctx)
+    return False
+
+
+def _enforce_scope(tool: str, args: dict, ctx: ScanContext) -> None:
+    """Scope-check every host-carrying argument of one tool call. Raises ToolError on
+    the first literal outside the authorized scope."""
+    if tool in _SCOPE_EXEMPT_TOOLS or not isinstance(args, dict):
+        return
+    for key in _SCOPED_ARG_NAMES:
+        if key not in args:
+            continue
+        for literal in _hosts_in_value(args[key]):
+            if not _literal_in_scope(literal, ctx):
+                raise ToolError(
+                    f"{literal!r} (argument {key!r} of {tool}) is outside the authorized "
+                    f"scope ({ctx.target!r}). Only the operator can widen scope — ask them, "
+                    f"then set_target.")
+
+
 async def _run_nmap(ctx: ScanContext, *args: str, timeout: float = 300.0) -> dict:
     """Run nmap with XML output and parse it. Returns a compact host summary."""
     timing = ctx.timing or "T4"
@@ -320,13 +409,13 @@ async def _run_nmap(ctx: ScanContext, *args: str, timeout: float = 300.0) -> dic
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     except FileNotFoundError:
         raise ToolError("nmap not found. Install it: `brew install nmap` (macOS) "
-                        "or `sudo apt install nmap` (Linux), or set PWNER_NMAP to the binary path.")
+                        "or `sudo apt install nmap` (Linux), or set PWNER_NMAP to the binary path.") from None
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        raise ToolError(f"nmap timed out after {timeout:.0f}s")
+        raise ToolError(f"nmap timed out after {timeout:.0f}s") from None
     if proc.returncode != 0:
         raise ToolError(f"nmap exited {proc.returncode}: {err.decode('utf-8', 'replace')[:300]}")
     return _parse_nmap_xml(out.decode("utf-8", "replace"))
@@ -687,6 +776,7 @@ async def web_request(ctx: ScanContext, args: dict) -> dict:
     persist across calls, so once you log in you stay authenticated. For a RAW body (binary upload,
     exact bytes) pass `body` (text) or `body_b64` (base64-decoded to bytes)."""
     import base64 as _b64
+
     import httpx
     host = str(args.get("host") or "")
     _require_scope(host, ctx)
@@ -851,7 +941,7 @@ async def nuclei_scan(ctx: ScanContext, args: dict) -> dict:
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
-            raise ToolError("nuclei timed out after 300s")
+            raise ToolError("nuclei timed out after 300s") from None
     finally:
         try:
             os.unlink(path)
@@ -931,7 +1021,7 @@ async def hydra_brute(ctx: ScanContext, args: dict) -> dict:
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
-            raise ToolError("hydra timed out after 240s")
+            raise ToolError("hydra timed out after 240s") from None
     finally:
         if tmp_pw:
             try:
@@ -1114,7 +1204,7 @@ async def tcp_send(ctx: ScanContext, args: dict) -> dict:
         try:
             payload = bytes.fromhex(re.sub(r"\s+", "", raw))
         except ValueError:
-            raise ToolError("hex=true but data is not valid hex")
+            raise ToolError("hex=true but data is not valid hex") from None
     else:
         text = raw.replace("\\r", "\r").replace("\\n", "\n").replace("\\t", "\t")
         payload = text.encode("utf-8", "replace")
@@ -1157,7 +1247,7 @@ async def snmp_check(ctx: ScanContext, args: dict) -> dict:
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        raise ToolError("snmpwalk timed out")
+        raise ToolError("snmpwalk timed out") from None
     lines = out.decode("utf-8", "replace").strip().splitlines()
     return {"host": host, "community": community, "reachable": proc.returncode == 0,
             "sysinfo": lines[:20]}
@@ -1506,14 +1596,14 @@ async def _run_cli(cmd: list[str], timeout: float = 300.0, stdin: str | None = N
             stdin=asyncio.subprocess.PIPE if stdin is not None else None,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     except FileNotFoundError:
-        raise ToolError(f"{cmd[0]} not found")
+        raise ToolError(f"{cmd[0]} not found") from None
     try:
         out, err = await asyncio.wait_for(
             proc.communicate(stdin.encode() if stdin is not None else None), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
-        raise ToolError(f"{os.path.basename(cmd[0])} timed out after {timeout:.0f}s")
+        raise ToolError(f"{os.path.basename(cmd[0])} timed out after {timeout:.0f}s") from None
     return {"rc": proc.returncode,
             "stdout": out.decode("utf-8", "replace"),
             "stderr": err.decode("utf-8", "replace")}
@@ -2251,56 +2341,71 @@ TOOL_SCHEMAS = [
 ]
 
 
+def _guarded(name: str, fn: Callable[..., Any], ctx: ScanContext) -> Callable[[dict], Any]:
+    """Wrap one tool so the authorized-scope check runs before its body. The wrapper is a
+    coroutine on purpose: llm._run_tool builds the task with ensure_future(fn(args)) outside
+    its try block, so a ToolError raised synchronously here would abort the whole run instead
+    of coming back to the model as a recoverable "out of scope" tool result."""
+    async def run(args: dict) -> Any:
+        _enforce_scope(name, args or {}, ctx)
+        return await fn(ctx, args)
+    run.__name__ = f"guarded_{name}"
+    return run
+
+
 def build_dispatch(ctx: ScanContext) -> dict[str, Callable[[dict], Any]]:
-    return {
-        "set_target": lambda a: set_target(ctx, a),
-        "port_scan": lambda a: port_scan(ctx, a),
-        "service_detect": lambda a: service_detect(ctx, a),
-        "vuln_scan": lambda a: vuln_scan(ctx, a),
-        "os_detect": lambda a: os_detect(ctx, a),
-        "ping_sweep": lambda a: ping_sweep(ctx, a),
-        "dns_enum": lambda a: dns_enum(ctx, a),
-        "banner_grab": lambda a: banner_grab(ctx, a),
-        "http_probe": lambda a: http_probe(ctx, a),
-        "content_discovery": lambda a: content_discovery(ctx, a),
-        "web_request": lambda a: web_request(ctx, a),
-        "http_download": lambda a: http_download(ctx, a),
-        "run_nmap": lambda a: run_nmap(ctx, a),
-        "nuclei_scan": lambda a: nuclei_scan(ctx, a),
-        "request_consent": lambda a: request_consent(ctx, a),
-        "exploit_search": lambda a: exploit_search(ctx, a),
-        "ftp_anon": lambda a: ftp_anon(ctx, a),
-        "ftp_get": lambda a: ftp_get(ctx, a),
-        "smb_enum": lambda a: smb_enum(ctx, a),
-        "ssl_info": lambda a: ssl_info(ctx, a),
-        "tcp_send": lambda a: tcp_send(ctx, a),
-        "snmp_check": lambda a: snmp_check(ctx, a),
-        "kerbrute_userenum": lambda a: kerbrute_userenum(ctx, a),
-        "asrep_roast": lambda a: asrep_roast(ctx, a),
-        "kerberoast": lambda a: kerberoast(ctx, a),
-        "ldap_enum": lambda a: ldap_enum(ctx, a),
-        "rid_brute": lambda a: rid_brute(ctx, a),
-        "smb_shares": lambda a: smb_shares(ctx, a),
-        "smb_get": lambda a: smb_get(ctx, a),
-        "password_spray": lambda a: password_spray(ctx, a),
-        "secretsdump": lambda a: secretsdump(ctx, a),
-        "win_exec": lambda a: win_exec(ctx, a),
-        "ssh_exec": lambda a: ssh_exec(ctx, a),
-        "bloodhound_collect": lambda a: bloodhound_collect(ctx, a),
-        "adcs_find": lambda a: adcs_find(ctx, a),
-        "dc_vuln_check": lambda a: dc_vuln_check(ctx, a),
-        "hash_crack": lambda a: hash_crack(ctx, a),
-        "cred_check": lambda a: cred_check(ctx, a),
-        "ledger": lambda a: ledger(ctx, a),
-        "hydra_brute": lambda a: hydra_brute(ctx, a),
-        "attacker_info": lambda a: attacker_info(ctx, a),
-        "exfil": lambda a: exfil(ctx, a),
-        "listener": lambda a: listener(ctx, a),
-        "shell_exec": lambda a: shell_exec(ctx, a),
-        "note": lambda a: note(ctx, a),
-        "report_finding": lambda a: report_finding(ctx, a),
-        "get_findings": lambda a: get_findings(ctx, a),
+    """Tool name -> coroutine, each one scope-guarded. Add a tool here and it is guarded
+    automatically; see _SCOPE_EXEMPT_TOOLS for the ones with no network target."""
+    impls: dict[str, Callable[..., Any]] = {
+        "set_target":         set_target,
+        "port_scan":          port_scan,
+        "service_detect":     service_detect,
+        "vuln_scan":          vuln_scan,
+        "os_detect":          os_detect,
+        "ping_sweep":         ping_sweep,
+        "dns_enum":           dns_enum,
+        "banner_grab":        banner_grab,
+        "http_probe":         http_probe,
+        "content_discovery":  content_discovery,
+        "web_request":        web_request,
+        "http_download":      http_download,
+        "run_nmap":           run_nmap,
+        "nuclei_scan":        nuclei_scan,
+        "request_consent":    request_consent,
+        "exploit_search":     exploit_search,
+        "ftp_anon":           ftp_anon,
+        "ftp_get":            ftp_get,
+        "smb_enum":           smb_enum,
+        "ssl_info":           ssl_info,
+        "tcp_send":           tcp_send,
+        "snmp_check":         snmp_check,
+        "kerbrute_userenum":  kerbrute_userenum,
+        "asrep_roast":        asrep_roast,
+        "kerberoast":         kerberoast,
+        "ldap_enum":          ldap_enum,
+        "rid_brute":          rid_brute,
+        "smb_shares":         smb_shares,
+        "smb_get":            smb_get,
+        "password_spray":     password_spray,
+        "secretsdump":        secretsdump,
+        "win_exec":           win_exec,
+        "ssh_exec":           ssh_exec,
+        "bloodhound_collect": bloodhound_collect,
+        "adcs_find":          adcs_find,
+        "dc_vuln_check":      dc_vuln_check,
+        "hash_crack":         hash_crack,
+        "cred_check":         cred_check,
+        "ledger":             ledger,
+        "hydra_brute":        hydra_brute,
+        "attacker_info":      attacker_info,
+        "exfil":              exfil,
+        "listener":           listener,
+        "shell_exec":         shell_exec,
+        "note":               note,
+        "report_finding":     report_finding,
+        "get_findings":       get_findings,
     }
+    return {name: _guarded(name, fn, ctx) for name, fn in impls.items()}
 
 
 def dependency_status() -> list[dict]:

@@ -19,7 +19,7 @@ from textual.containers import Horizontal, Vertical
 from textual.suggester import SuggestFromList
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
-from .repl import SPINNER_FRAMES, _COMMANDS
+from .repl import _COMMANDS, SPINNER_FRAMES
 
 # phase -> icon for the status line; severity -> color for findings/notes.
 _PHASE_ICON = {
@@ -60,12 +60,14 @@ class HistoryInput(Input):
             self._hidx = max(0, self._hidx - 1)
             self.value = self.history[self._hidx]
             self.cursor_position = len(self.value)
-            event.stop(); event.prevent_default()
+            event.stop()
+            event.prevent_default()
         elif event.key == "down" and self.history:
             self._hidx = min(len(self.history), self._hidx + 1)
             self.value = self.history[self._hidx] if self._hidx < len(self.history) else ""
             self.cursor_position = len(self.value)
-            event.stop(); event.prevent_default()
+            event.stop()
+            event.prevent_default()
 
 
 class PwnerApp(App):

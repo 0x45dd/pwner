@@ -15,8 +15,37 @@ dependencies = [
     "textual>=0.60",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
 [project.scripts]
 pwner = "pwner.cli:main"
 
 [tool.setuptools]
 packages = ["pwner"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The suite is offline by design: no nmap, no sockets, no API calls. Keep it that way —
+# a test that needs the network belongs behind an explicit marker, not in the default run.
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+extend-exclude = [".venv", "build", "dist"]
+
+[tool.ruff.lint]
+# Pinned explicitly so CI does not inherit whatever config sits above the repo.
+select = ["E", "F", "I", "UP", "B", "W"]
+ignore = [
+    "E501",    # line length is reported by the formatter, not worth failing CI over
+    "B008",    # argparse/dataclass defaults in call position are idiomatic here
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests reach into private helpers on purpose: the scope guard is the thing under test.
+"tests/*" = ["E402"]

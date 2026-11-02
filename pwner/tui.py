@@ -7,7 +7,6 @@ stays visible and working, OpenCode-style.
 from __future__ import annotations
 
 import io
-import sys
 
 from rich.console import Console
 from rich.panel import Panel
@@ -108,7 +107,7 @@ class TUI:
         self.prompt_tokens = 0      # cumulative this session
         self.completion_tokens = 0
 
-    def __enter__(self) -> "TUI":
+    def __enter__(self) -> TUI:
         return self
 
     def __exit__(self, *exc) -> None:
