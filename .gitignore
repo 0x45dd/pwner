@@ -5,6 +5,13 @@ __pycache__/
 build/
 dist/
 
+# Tool caches. pytest and ruff each drop a self-ignoring .gitignore inside these, so
+# they stay out even without these lines — but that is the tool's courtesy, not a rule
+# of this repo, so say it here too.
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
 # Virtualenv
 .venv/
 venv/
