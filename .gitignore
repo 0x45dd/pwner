@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtualenv
+.venv/
+venv/
+
+# pwner runtime output (session transcripts from /dump, tool state files)
+pwner-session-*.txt
+*.restore
+
+# Local secrets / env
+.env
+.env.*
+config.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
