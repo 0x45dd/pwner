@@ -66,7 +66,10 @@ def test_category_name_without_script_flag_is_not_refused():
     ("example.com", "example.com"),          # hostname passes through
     ("sub.example.com", "sub.example.com"),
 ])
-def test_resolve_target_spec_passes_through(spec, expected):
+def test_resolve_target_spec_passes_through(spec, expected, monkeypatch):
+    # A non-IP spec is offered to _iface_ipv4_prefix first, which shells out to
+    # ip/ifconfig to ask whether it names a local interface. None == "not one".
+    monkeypatch.setattr("pwner.tools.target._iface_ipv4_prefix", lambda iface: None)
     assert resolve_target_spec(spec) == expected
 
 
@@ -80,29 +83,29 @@ def test_prefix_does_not_override_an_explicit_cidr():
 
 
 def test_interface_with_prefix_resolves_to_that_subnet(monkeypatch):
-    monkeypatch.setattr(tools, "_iface_ipv4_prefix", lambda iface: ("192.168.5.37", 24))
+    monkeypatch.setattr("pwner.tools.target._iface_ipv4_prefix", lambda iface: ("192.168.5.37", 24))
     for spec in ("en0/24", "en0 /24", "EN0 / 24"):
         assert resolve_target_spec(spec) == "192.168.5.0/24"
 
 
 def test_interface_without_prefix_uses_the_interface_netmask(monkeypatch):
-    monkeypatch.setattr(tools, "_iface_ipv4_prefix", lambda iface: ("192.168.5.37", 25))
+    monkeypatch.setattr("pwner.tools.target._iface_ipv4_prefix", lambda iface: ("192.168.5.37", 25))
     assert resolve_target_spec("en0") == "192.168.5.0/25"
 
 
 @pytest.mark.parametrize("word", ["local", "lan", "my network", "LOCAL", "here"])
 def test_local_words_resolve_to_this_machines_subnet(word, monkeypatch):
-    monkeypatch.setattr(tools, "_primary_ipv4", lambda: "192.168.1.42")
+    monkeypatch.setattr("pwner.tools.target._primary_ipv4", lambda: "192.168.1.42")
     assert resolve_target_spec(word) == "192.168.1.0/24"
 
 
 def test_local_word_honours_an_explicit_prefix(monkeypatch):
-    monkeypatch.setattr(tools, "_primary_ipv4", lambda: "192.168.1.42")
+    monkeypatch.setattr("pwner.tools.target._primary_ipv4", lambda: "192.168.1.42")
     assert resolve_target_spec("local", prefix=16) == "192.168.0.0/16"
 
 
 def test_local_word_errors_when_the_subnet_is_undiscoverable(monkeypatch):
-    monkeypatch.setattr(tools, "_primary_ipv4", lambda: None)
+    monkeypatch.setattr("pwner.tools.target._primary_ipv4", lambda: None)
     with pytest.raises(ToolError, match="local subnet"):
         resolve_target_spec("local")
 
@@ -111,7 +114,7 @@ def test_resolved_spec_is_always_a_valid_scope_for_an_interface(monkeypatch):
     """Whatever resolve_target_spec returns for an interface becomes ctx.target, so it
     has to parse as a network — otherwise scope_networks() silently yields nothing and
     the CIDR branch of the guard never engages."""
-    monkeypatch.setattr(tools, "_iface_ipv4_prefix", lambda iface: ("10.1.2.3", 24))
+    monkeypatch.setattr("pwner.tools.target._iface_ipv4_prefix", lambda iface: ("10.1.2.3", 24))
     resolved = resolve_target_spec("eth0")
     assert ipaddress.ip_network(resolved, strict=False)
     assert tools.ScanContext(target=resolved).scope_networks()

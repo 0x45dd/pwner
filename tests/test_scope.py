@@ -71,7 +71,7 @@ def test_in_scope_without_target_is_permissive():
 
 
 def test_in_scope_matches_hostname_by_resolved_ip(monkeypatch):
-    monkeypatch.setattr(tools, "_resolve_ips",
+    monkeypatch.setattr("pwner.tools.core._resolve_ips",
                         lambda h: ["10.0.0.5"] if h in ("web.lab", "10.0.0.5") else [])
     assert in_scope("web.lab", ctx("10.0.0.0/24")) is True
     assert in_scope("web.lab", ctx("10.0.0.5")) is True
@@ -79,7 +79,7 @@ def test_in_scope_matches_hostname_by_resolved_ip(monkeypatch):
 
 def test_unresolvable_hostname_is_refused(monkeypatch):
     """A name we cannot resolve must not be assumed in scope."""
-    monkeypatch.setattr(tools, "_resolve_ips", lambda h: [])
+    monkeypatch.setattr("pwner.tools.core._resolve_ips", lambda h: [])
     assert in_scope("nope.invalid", ctx("10.0.0.0/24")) is False
 
 
@@ -163,7 +163,7 @@ def test_enforce_scope_skips_absent_and_empty_args():
     ("ssh_exec", {"host": "10.9.9.9"}),
 ])
 def test_enforce_scope_refuses_out_of_scope(tool, args, monkeypatch):
-    monkeypatch.setattr(tools, "_resolve_ips",
+    monkeypatch.setattr("pwner.tools.core._resolve_ips",
                         lambda h: [h] if h[0].isdigit() else [])
     with pytest.raises(ToolError, match="outside the authorized scope"):
         _enforce_scope(tool, args, ctx("10.0.0.0/24"))
@@ -201,8 +201,10 @@ def test_ping_sweep_cannot_sweep_a_wider_network():
         _enforce_scope("ping_sweep", {"target": "10.0.0.0/16"}, ctx("10.0.0.0/24"))
 
 
-def test_nuclei_scan_refuses_an_out_of_scope_url_in_a_list():
+def test_nuclei_scan_refuses_an_out_of_scope_url_in_a_list(monkeypatch):
     """nuclei_scan accepts up to 500 targets; one bad entry has to fail the call."""
+    monkeypatch.setattr("pwner.tools.core._resolve_ips",
+                        lambda h: [h] if h[0].isdigit() else ["93.184.216.34"])
     targets = [f"http://10.0.0.{i}:80" for i in range(1, 20)] + ["http://example.com"]
     with pytest.raises(ToolError, match="outside the authorized scope"):
         _enforce_scope("nuclei_scan", {"targets": targets}, ctx("10.0.0.0/24"))

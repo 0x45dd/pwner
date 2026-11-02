@@ -34,7 +34,7 @@ dev = [
 pwner = "pwner.cli:main"
 
 [tool.setuptools]
-packages = ["pwner"]
+packages = ["pwner", "pwner.tools"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

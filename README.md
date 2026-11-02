@@ -313,7 +313,15 @@ pwner/
 ├── LICENSE             # AGPL-3.0-or-later
 ├── pwner/
 │   ├── llm.py          # OpenAI-compatible client + agentic run_tools loop
-│   ├── tools.py        # @tool registry + nmap/DNS/HTTP/AD tools + scope & safety guard
+│   ├── tools/          # the tools package — see the dependency star below
+│   │   ├── core.py     #   scope guard · consent gate · @tool registry · ScanContext
+│   │   ├── nmap.py     #   port/service/vuln/OS scans, host discovery, nuclei
+│   │   ├── web.py      #   scheme probing, endpoint discovery, raw HTTP requests
+│   │   ├── net.py      #   DNS, banners, raw TCP, SNMP, FTP
+│   │   ├── ad.py       #   Active Directory + credentialed execution
+│   │   ├── session.py  #   reverse-shell listener, exfil channel, shell_exec
+│   │   ├── target.py   #   operator phrase -> authorized scope
+│   │   └── report.py   #   findings, ledger, dependency status, the agent's brief
 │   ├── prompts.py      # the agent's system prompt
 │   ├── agent.py        # agentic orchestration + deterministic fallback
 │   ├── repl.py         # interactive session logic (turns, commands) + plain fallback
@@ -323,9 +331,11 @@ pwner/
 │   ├── cli.py          # terminal interface
 │   └── __main__.py     # python -m pwner
 ├── tests/              # offline suite — no nmap, no sockets, no API calls
+│   ├── conftest.py             # blocks real DNS/sockets/subprocesses during tests
 │   ├── test_scope.py           # the authorization boundary
 │   ├── test_consent.py         # the consent gate: granting, remembering, retracting
 │   ├── test_registry.py        # @tool declarations and the schemas they generate
+│   ├── test_package_layout.py  # the dependency star + every submodule stays imported
 │   ├── test_nmap_parse.py      # nmap XML parsing against real -oX fixtures
 │   ├── test_safety_rails.py    # NSE blocklist + target-spec resolution
 │   └── test_llm_json.py        # JSON recovery from fenced/prose model output
@@ -337,14 +347,38 @@ pwner/
 
 ```bash
 pip install -e ".[dev]"    # adds pytest + ruff
-pytest                     # 265 tests, ~0.1s
+pytest                     # 283 tests, ~0.2s
 ruff check .
 ```
 
 The test suite is **offline by design** — it starts no nmap process, opens no sockets and
-makes no API calls, so it runs anywhere in well under a second. Hostname-resolution paths
-are monkeypatched rather than hitting DNS. A test that genuinely needs the network belongs
-behind an explicit marker, not in the default run.
+makes no API calls, so it runs anywhere in well under a second. That is enforced, not
+merely intended: `tests/conftest.py` blocks `socket.getaddrinfo`, outbound connections and
+subprocess spawns for the duration of every test, so a test that forgets to stub something
+fails with an explicit error instead of quietly resolving a name or scanning a host on
+whoever runs it. A test that genuinely needs the network belongs behind an explicit marker,
+not in the default run.
+
+Stub at the module that *looks a name up*, not at the `pwner.tools` re-export —
+`monkeypatch.setattr("pwner.tools.core._resolve_ips", ...)`, because `in_scope` resolves
+`_resolve_ips` in `core`'s own namespace and never reads the package-level alias.
+
+### The tools package
+
+`core` owns the authorization boundary — the scope guard, the consent gate and the `@tool`
+registry — and imports no sibling. Every other module imports from `core` and from nothing
+else, so the graph is a star and cannot form a cycle:
+
+```
+          nmap   web   net   ad   session   target   report
+            └──────┴─────┴────┴──────┴────────┴────────┘
+                              core
+```
+
+Importing `pwner.tools` imports all of them, and that is what fills the registry: a
+submodule nobody imports registers no tools, so its tools would disappear from the agent's
+toolset with no error anywhere. `tests/test_package_layout.py` enforces both the star and
+the imports, and pins the tool count.
 
 The parts worth keeping covered are `tests/test_scope.py` and `tests/test_consent.py` —
 together they are the safety model. Scope decides *where* pwner may act, consent decides
