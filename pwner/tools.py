@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import ftplib
+import inspect
 import ipaddress
 import json
 import os
@@ -318,13 +319,76 @@ def _require_scope(host: str, ctx: ScanContext) -> None:
 # asks a public resolver about a name rather than touching the target.
 _SCOPED_ARG_NAMES = ("target", "targets", "host", "hosts", "dc_ip", "server", "ip")
 
-# Tools with no network target to check: scope setup itself, local bookkeeping,
-# offline cracking, third-party lookups, and our own attacker-side infrastructure
-# (listener/exfil bind locally; shell_exec runs over an already-established session).
-_SCOPE_EXEMPT_TOOLS = frozenset({
-    "set_target", "note", "report_finding", "get_findings", "ledger", "request_consent",
-    "attacker_info", "exploit_search", "hash_crack", "listener", "exfil", "shell_exec",
-})
+
+# ── Tool registry ─────────────────────────────────────────────────────────────
+# One declaration site per tool. The @tool decorator is the ONLY place a tool's name,
+# description, parameter schema and scope exemption are written down; the LLM schema
+# list, the dispatch table and the exemption set are all derived from it. Before this,
+# a tool lived in three places (the function, TOOL_SCHEMAS, build_dispatch) and had to
+# be added to each by hand — which is how ping_sweep, nuclei_scan and hydra_brute ended
+# up reaching the network with no scope check at all.
+
+
+@dataclass(frozen=True)
+class _Tool:
+    name: str
+    description: str
+    properties: dict
+    required: tuple[str, ...]
+    fn: Callable[..., Any]
+    scope_exempt: bool
+
+    def schema(self) -> dict:
+        """This tool as an OpenAI-compatible function-calling schema."""
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {"type": "object",
+                               "properties": self.properties,
+                               "required": list(self.required)},
+            },
+        }
+
+
+_REGISTRY: dict[str, _Tool] = {}
+
+
+def tool(description: str, properties: dict | None = None,
+         required: list[str] | None = None, *, scope_exempt: bool = False):
+    """Register an async tool function. The tool's name is the function's own name.
+
+    scope_exempt=True means the tool takes no network target, so the central scope
+    check has nothing to check: scope setup itself, local bookkeeping, offline work,
+    third-party lookups, and our own attacker-side infrastructure (listener/exfil bind
+    locally; shell_exec runs over an already-established session). Set it deliberately —
+    it is the one way to opt a tool out of the authorization boundary.
+    """
+    def register(fn: Callable[..., Any]) -> Callable[..., Any]:
+        name = fn.__name__
+        if name in _REGISTRY:
+            raise RuntimeError(f"tool {name!r} is already registered")
+        if not inspect.iscoroutinefunction(fn):
+            raise RuntimeError(f"tool {name!r} must be async")
+        props = properties or {}
+        req = tuple(required or ())
+        unknown = [r for r in req if r not in props]
+        if unknown:
+            raise RuntimeError(f"tool {name!r} requires undeclared parameter(s): {unknown}")
+        _REGISTRY[name] = _Tool(name, description, props, req, fn, scope_exempt)
+        return fn
+    return register
+
+
+def tool_schemas() -> list[dict]:
+    """Every registered tool as a function-calling schema, in declaration order."""
+    return [t.schema() for t in _REGISTRY.values()]
+
+
+def scope_exempt_tools() -> frozenset[str]:
+    """Names of the tools that opted out of the central scope check."""
+    return frozenset(name for name, t in _REGISTRY.items() if t.scope_exempt)
 
 
 def _hosts_in_value(value: Any) -> list[str]:
@@ -378,10 +442,14 @@ def _literal_in_scope(literal: str, ctx: ScanContext) -> bool:
     return False
 
 
-def _enforce_scope(tool: str, args: dict, ctx: ScanContext) -> None:
+def _enforce_scope(tool_name: str, args: dict, ctx: ScanContext) -> None:
     """Scope-check every host-carrying argument of one tool call. Raises ToolError on
-    the first literal outside the authorized scope."""
-    if tool in _SCOPE_EXEMPT_TOOLS or not isinstance(args, dict):
+    the first literal outside the authorized scope.
+
+    Fails closed: an unregistered name is checked rather than waved through, so a typo
+    or a tool wired up outside the registry cannot silently skip the boundary."""
+    entry = _REGISTRY.get(tool_name)
+    if (entry is not None and entry.scope_exempt) or not isinstance(args, dict):
         return
     for key in _SCOPED_ARG_NAMES:
         if key not in args:
@@ -389,7 +457,7 @@ def _enforce_scope(tool: str, args: dict, ctx: ScanContext) -> None:
         for literal in _hosts_in_value(args[key]):
             if not _literal_in_scope(literal, ctx):
                 raise ToolError(
-                    f"{literal!r} (argument {key!r} of {tool}) is outside the authorized "
+                    f"{literal!r} (argument {key!r} of {tool_name}) is outside the authorized "
                     f"scope ({ctx.target!r}). Only the operator can widen scope — ask them, "
                     f"then set_target.")
 
@@ -520,6 +588,13 @@ def _guard_nmap_args(raw: str) -> list[str]:
     return raw.split()
 
 
+@tool("TCP port scan (SYN if root, else connect). Returns open ports with service names. "
+      "YOU control nmap flags via nmap_args — e.g. pass '-Pn' for a known-live host so discovery "
+      "doesn't falsely mark it down on a full scan.",
+      {"target": {"type": "string"}, "ports": {"type": "string",
+       "description": "top-1000|top-100|common|all|explicit '22,80,443' or '1-1024'"},
+       "nmap_args": {"type": "string", "description": "extra nmap flags you choose, e.g. '-Pn -T2' (destructive scripts refused)"}},
+      [])
 async def port_scan(ctx: ScanContext, args: dict) -> dict:
     host = str(args.get("target") or ctx.target)
     _require_scope(host, ctx)
@@ -533,6 +608,10 @@ async def port_scan(ctx: ScanContext, args: dict) -> dict:
     return _summarize(parsed)
 
 
+@tool("nmap version detection (-sV): exact service name/product/version per port.",
+      {"target": {"type": "string"}, "ports": {"type": "string", "description": "optional port list; defaults to top-1000"},
+       "nmap_args": {"type": "string", "description": "extra nmap flags you choose, e.g. '-Pn --version-all'"}},
+      [])
 async def service_detect(ctx: ScanContext, args: dict) -> dict:
     host = str(args.get("target") or ctx.target)
     _require_scope(host, ctx)
@@ -542,6 +621,10 @@ async def service_detect(ctx: ScanContext, args: dict) -> dict:
     return _summarize(parsed)
 
 
+@tool("nmap detection scripts (vuln+safe) for known CVEs/misconfigs. Run AFTER service_detect.",
+      {"target": {"type": "string"}, "ports": {"type": "string", "description": "optional port list"},
+       "nmap_args": {"type": "string", "description": "extra nmap flags you choose, e.g. '-Pn' or '--script ssl-enum-ciphers'"}},
+      [])
 async def vuln_scan(ctx: ScanContext, args: dict) -> dict:
     host = str(args.get("target") or ctx.target)
     _require_scope(host, ctx)
@@ -555,6 +638,9 @@ def _is_root() -> bool:
     return hasattr(os, "geteuid") and os.geteuid() == 0
 
 
+@tool("nmap OS fingerprint (-O).",
+      {"target": {"type": "string"}, "nmap_args": {"type": "string", "description": "extra nmap flags, e.g. '-Pn'"}},
+      [])
 async def os_detect(ctx: ScanContext, args: dict) -> dict:
     host = str(args.get("target") or ctx.target)
     _require_scope(host, ctx)
@@ -565,6 +651,9 @@ async def os_detect(ctx: ScanContext, args: dict) -> dict:
     return _summarize(parsed, open_only=False)
 
 
+@tool("Live-host discovery (-sn). Best first step for a CIDR target.",
+      {"target": {"type": "string"}},
+      [])
 async def ping_sweep(ctx: ScanContext, args: dict) -> dict:
     target = str(args.get("target") or ctx.target)
     # Host discovery is far weaker without root: ICMP echo/timestamp and ARP all need
@@ -586,6 +675,9 @@ async def ping_sweep(ctx: ScanContext, args: dict) -> dict:
     return out
 
 
+@tool("DNS records (A/AAAA/CNAME/MX/NS/TXT) for a domain.",
+      {"domain": {"type": "string"}},
+      [])
 async def dns_enum(ctx: ScanContext, args: dict) -> dict:
     import dns.asyncresolver
     domain = str(args.get("domain") or ctx.target).strip().lower().rstrip(".")
@@ -599,6 +691,9 @@ async def dns_enum(ctx: ScanContext, args: dict) -> dict:
     return {"domain": domain, "records": out}
 
 
+@tool("Raw banner from one host:port (for a port nmap didn't identify).",
+      {"host": {"type": "string"}, "port": {"type": "integer"}},
+      ["host", "port"])
 async def banner_grab(ctx: ScanContext, args: dict) -> dict:
     host = str(args.get("host") or "")
     _require_scope(host, ctx)
@@ -671,6 +766,10 @@ def _collected_set_cookie(r) -> str:
     return " || ".join(out)[:600]
 
 
+@tool("Fetch a web page and SEE it: status, server, title, body excerpt, links, "
+      "forms (action/method/input names) and HTML comments. Use this to actually READ a web app.",
+      {"host": {"type": "string"}, "port": {"type": "integer"}, "path": {"type": "string"}},
+      ["host", "port"])
 async def http_probe(ctx: ScanContext, args: dict) -> dict:
     import httpx
     host = str(args.get("host") or "")
@@ -738,6 +837,12 @@ _COMMON_PATHS = [
 ]
 
 
+@tool("Map a web app's hidden paths/endpoints: probes a built-in list of common "
+      "paths (+ any you add) and returns which exist (non-404) with status/size. Run this early on any web service.",
+      {"host": {"type": "string"}, "port": {"type": "integer"},
+       "paths": {"type": "array", "items": {"type": "string"},
+       "description": "extra paths to also try, e.g. ['/api/users','/v2/login']"}},
+      ["host"])
 async def content_discovery(ctx: ScanContext, args: dict) -> dict:
     """Map a web app's hidden paths: probe a built-in list (+ any supplied) and report what exists."""
     import httpx
@@ -770,6 +875,15 @@ async def content_discovery(ctx: ScanContext, args: dict) -> dict:
     return {"base": base, "tested": len(paths), "found": found}
 
 
+@tool("Send a CUSTOM HTTP request (any method/path/headers/body/params) and get the full "
+      "parsed response — for testing endpoints, logins, parameters, auth bypass, IDOR. This is how you "
+      "interact with and exploit a web app's own logic (what nuclei can't do on a custom app).",
+      {"host": {"type": "string"}, "port": {"type": "integer"},
+       "method": {"type": "string", "description": "GET|POST|PUT|DELETE|..."},
+       "path": {"type": "string"}, "headers": {"type": "object"}, "params": {"type": "object"},
+       "data": {"type": "object", "description": "form fields for a POST"},
+       "json": {"type": "object", "description": "JSON request body"}},
+      ["host", "path"])
 async def web_request(ctx: ScanContext, args: dict) -> dict:
     """Send a custom HTTP request and return the parsed response — for testing endpoints, logins,
     parameters, auth bypass and IDOR (i.e. actually exercising the web app's own logic). Cookies
@@ -854,6 +968,13 @@ def _scan_creds(data: bytes) -> list[str]:
     return list(dict.fromkeys(hits))
 
 
+@tool("Download an HTTP response in FULL, binary-safe, and extract what matters: "
+      "the text (or a strings extraction for binary — pcaps, zips, backups, images) PLUS any "
+      "credentials found inside (HTTP Basic, FTP USER/PASS, user/password/token pairs). Use when a "
+      "path is a file/binary or when http_probe's body was truncated. Don't judge a file by its first KB.",
+      {"host": {"type": "string"}, "port": {"type": "integer"}, "path": {"type": "string"},
+       "method": {"type": "string"}, "headers": {"type": "object"}},
+      ["host", "path"])
 async def http_download(ctx: ScanContext, args: dict) -> dict:
     """Download a response in FULL (binary-safe) and extract what matters — for files http_probe
     can't read: pcaps, zips, backups, images, source. Returns the text (or a `strings` extraction
@@ -900,6 +1021,10 @@ async def http_download(ctx: ScanContext, args: dict) -> dict:
             "is_text": is_text, "credentials": creds[:50], "extract": extract}
 
 
+@tool("Full-control nmap — YOU write the flags (scan type, -Pn, -p, timing, detection "
+      "scripts, ...). Only destructive NSE scripts are refused. Use this when the preset scans don't fit.",
+      {"target": {"type": "string"}, "args": {"type": "string", "description": "e.g. '-sU --top-ports 100' or '-sV --script ssl-enum-ciphers -p 443'"}},
+      ["args"])
 async def run_nmap(ctx: ScanContext, args: dict) -> dict:
     """Full-control nmap: YOU compose the flags. Only the destructive-script safety block + scope
     guard are enforced; scan type, -Pn, ports, timing, detection scripts are all your call."""
@@ -913,6 +1038,11 @@ async def run_nmap(ctx: ScanContext, args: dict) -> dict:
     return _summarize(parsed)
 
 
+@tool("Run nuclei (thousands of known-CVE / misconfig / exposure templates) over target URLs. Use after discovering HTTP/network services.",
+      {"targets": {"type": "array", "items": {"type": "string"},
+       "description": "Absolute URLs or host:port, e.g. ['http://host:80','host:445']"},
+       "severity": {"type": "string", "description": "comma list, default low,medium,high,critical"}},
+      [])
 async def nuclei_scan(ctx: ScanContext, args: dict) -> dict:
     """Run nuclei (known-CVE / misconfig / exposure templates) over target URLs."""
     if not has_nuclei():
@@ -975,6 +1105,11 @@ async def nuclei_scan(ctx: ScanContext, args: dict) -> dict:
     return {"findings": findings, "count": len(findings)}
 
 
+@tool("STOP and ask the operator before a high-impact action (active exploitation, brute-force, mass traffic). Returns approved/denied.",
+      {"action": {"type": "string"}, "target": {"type": "string"},
+       "risk": {"type": "string", "enum": ["medium", "high", "critical"]}},
+      ["action", "target"],
+      scope_exempt=True)
 async def request_consent(ctx: ScanContext, args: dict) -> dict:
     """Consent gate for high-impact actions (active exploitation, brute-force, ...).
     Interactive mode prompts [y/N]; otherwise auto-approves (--auto-consent) or
@@ -988,6 +1123,12 @@ async def request_consent(ctx: ScanContext, args: dict) -> dict:
     return {"decision": "denied", "note": "denied — action not performed"}
 
 
+@tool("Brute-force credentials on one service with hydra. CONSENT-GATED — only runs if approved. Use only when the target warrants it and after cheaper checks fail.",
+      {"target": {"type": "string"},
+       "service": {"type": "string", "description": "hydra protocol: ftp|ssh|rdp|smb|mysql|postgres|smtp|http-get|..."},
+       "port": {"type": "integer"}, "username": {"type": "string"},
+       "wordlist": {"type": "string", "description": "path to a password list; omit for a small built-in list"}},
+      ["target", "service", "port"])
 async def hydra_brute(ctx: ScanContext, args: dict) -> dict:
     """Run hydra brute-force against ONE service. Consent-gated: only runs when the
     operator approved high-impact actions (--auto-consent)."""
@@ -1038,6 +1179,10 @@ async def hydra_brute(ctx: ScanContext, args: dict) -> dict:
             "credentials": creds, "found": len(creds) > 0, "raw_tail": text[-600:]}
 
 
+@tool("Search public exploits for a service/version (searchsploit + nuclei template names). Read-only — use after fingerprinting a version.",
+      {"service": {"type": "string"}, "version": {"type": "string"}},
+      ["service"],
+      scope_exempt=True)
 async def exploit_search(ctx: ScanContext, args: dict) -> dict:
     """Search public exploits for a service/version (searchsploit if installed, plus
     a local scan of the nuclei template names). Read-only."""
@@ -1081,6 +1226,11 @@ async def exploit_search(ctx: ScanContext, args: dict) -> dict:
     return {"query": query, "results": results[:30]}
 
 
+@tool("FTP login + directory listing (read-only recon). Anonymous by default; pass "
+      "user/password to test credentials you found elsewhere.",
+      {"host": {"type": "string"}, "port": {"type": "integer"},
+       "user": {"type": "string"}, "password": {"type": "string"}},
+      ["host"])
 async def ftp_anon(ctx: ScanContext, args: dict) -> dict:
     """Try an FTP login + directory listing (read-only recon). Defaults to anonymous;
     pass user/password to test credentials you discovered elsewhere."""
@@ -1118,6 +1268,11 @@ async def ftp_anon(ctx: ScanContext, args: dict) -> dict:
     return {"host": host, "port": port, **result}
 
 
+@tool("Download ONE file over FTP and read its contents (capped 256 KiB) — a config, "
+      "backup, source file, or flag. Anonymous by default; pass user/password for an account.",
+      {"host": {"type": "string"}, "port": {"type": "integer"}, "path": {"type": "string"},
+       "user": {"type": "string"}, "password": {"type": "string"}},
+      ["host", "path"])
 async def ftp_get(ctx: ScanContext, args: dict) -> dict:
     """Download ONE file over FTP and return its contents (capped) — read a config, a
     backup, source, a flag. Defaults to anonymous; pass user/password for an authed account."""
@@ -1166,6 +1321,10 @@ async def ftp_get(ctx: ScanContext, args: dict) -> dict:
     return {"host": host, "port": port, "path": path, "user": user, **result}
 
 
+@tool("Enumerate SMB (445): OS/domain, dialects, signing, shares, users, sessions via "
+      "nmap's safe SMB scripts. Read-only, no brute-force. FIRST move whenever 445 is open.",
+      {"host": {"type": "string"}, "port": {"type": "integer"}},
+      ["host"])
 async def smb_enum(ctx: ScanContext, args: dict) -> dict:
     """Enumerate SMB (445): OS/domain, dialects, signing, shares, users, sessions — via nmap's
     safe/discovery SMB scripts. Read-only; no auth or brute-force. The first move on any 445."""
@@ -1178,6 +1337,10 @@ async def smb_enum(ctx: ScanContext, args: dict) -> dict:
     return _summarize(parsed, open_only=False)
 
 
+@tool("Inspect TLS on a port: certificate (subject/issuer/SAN/validity) + supported "
+      "ciphers/protocols (nmap ssl-cert + ssl-enum-ciphers). Read-only.",
+      {"host": {"type": "string"}, "port": {"type": "integer"}},
+      ["host"])
 async def ssl_info(ctx: ScanContext, args: dict) -> dict:
     """Inspect TLS on a port: certificate (subject/issuer/SAN/validity) and supported
     ciphers/protocols via nmap's ssl-cert + ssl-enum-ciphers. Read-only."""
@@ -1189,6 +1352,15 @@ async def ssl_info(ctx: ScanContext, args: dict) -> dict:
     return _summarize(parsed, open_only=False)
 
 
+@tool("Send raw bytes to a TCP port and read the reply — speak any protocol banner_grab "
+      "can't (Redis 'INFO', memcached 'stats', a DB handshake, a custom service). data is text with "
+      "\\r\\n/\\t escapes honored; set hex=true to send a hex string. Read/recon only.",
+      {"host": {"type": "string"}, "port": {"type": "integer"},
+       "data": {"type": "string", "description": "payload to send; empty just reads the greeting"},
+       "hex": {"type": "boolean", "description": "true: interpret data as a hex string"},
+       "crlf": {"type": "boolean", "description": "append CRLF if missing (default true)"},
+       "read_bytes": {"type": "integer"}, "timeout": {"type": "number"}},
+      ["host", "port"])
 async def tcp_send(ctx: ScanContext, args: dict) -> dict:
     """Send raw bytes to a TCP port and read the reply — talk to any protocol banner_grab can't
     (Redis 'INFO', memcached 'stats', a DB handshake, a custom service). `data` is text (\\r\\n/\\t
@@ -1232,6 +1404,9 @@ async def tcp_send(ctx: ScanContext, args: dict) -> dict:
             "response_hex": data[:200].hex()}
 
 
+@tool("Read SNMP system info with a community string (default 'public'). Read-only recon.",
+      {"host": {"type": "string"}, "community": {"type": "string"}},
+      ["host"])
 async def snmp_check(ctx: ScanContext, args: dict) -> dict:
     """Read SNMP system info with a community string (read-only recon)."""
     host = str(args.get("host") or "")
@@ -1253,12 +1428,23 @@ async def snmp_check(ctx: ScanContext, args: dict) -> dict:
             "sysinfo": lines[:20]}
 
 
+@tool("Record a fact/hypothesis about the target (scratchpad).",
+      {"text": {"type": "string"}},
+      ["text"],
+      scope_exempt=True)
 async def note(ctx: ScanContext, args: dict) -> dict:
     text = str(args.get("text") or "").strip()
     ctx.notes.append(text)
     return {"noted": True, "notes_count": len(ctx.notes)}
 
 
+@tool("File ONE confirmed finding (severity + evidence + remediation).",
+      {"host": {"type": "string"}, "port": {"type": "integer"}, "service": {"type": "string"},
+       "title": {"type": "string"}, "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"]},
+       "confidence": {"type": "string", "enum": ["confirmed", "probable", "possible"]},
+       "evidence": {"type": "string"}, "remediation": {"type": "string"}},
+      ["host", "title", "severity"],
+      scope_exempt=True)
 async def report_finding(ctx: ScanContext, args: dict) -> dict:
     sev = str(args.get("severity") or "medium").lower()
     if sev not in ("critical", "high", "medium", "low", "info"):
@@ -1286,6 +1472,10 @@ async def report_finding(ctx: ScanContext, args: dict) -> dict:
     return {"reported": True, "findings_count": len(ctx.findings)}
 
 
+@tool("List findings reported so far.",
+      {},
+      [],
+      scope_exempt=True)
 async def get_findings(ctx: ScanContext, args: dict) -> dict:
     return {"findings": ctx.findings}
 
@@ -1360,6 +1550,14 @@ def resolve_target_spec(spec: str, prefix: int | None = None) -> str:
     return s  # otherwise a hostname/domain — pass through
 
 
+@tool("Set/replace the authorized scope FROM THE OPERATOR'S REQUEST. Accepts an IP, "
+      "CIDR, domain, OR a local interface name (e.g. 'en0', 'eth0', 'wlan0') or 'local'/'lan' for "
+      "this machine's own subnet. Call this whenever the operator tells you what to scan instead of "
+      "refusing for lack of a preset target. 'en0 /24' -> the /24 that interface is on.",
+      {"target": {"type": "string", "description": "ip | cidr | domain | interface (en0) | 'local'"},
+       "prefix": {"type": "integer", "description": "optional CIDR prefix, e.g. 24, for a subnet around an interface IP"}},
+      ["target"],
+      scope_exempt=True)
 async def set_target(ctx: ScanContext, args: dict) -> dict:
     """Set/replace the authorized scope from the operator's request."""
     spec = str(args.get("target") or args.get("spec") or "").strip()
@@ -1487,12 +1685,23 @@ def _exploit(ctx: ScanContext) -> ExploitState:
     return ctx.exploit
 
 
+@tool("The attacker IP the target can reach you on (for reverse shells / exfil callbacks). Read-only.",
+      {},
+      [],
+      scope_exempt=True)
 async def attacker_info(ctx: ScanContext, args: dict) -> dict:
     ip = _source_ip_for(ctx.target)
     return {"attacker_ip": ip, "note": "this is the IP the target can reach you on — use it for "
             "reverse shells and exfil callbacks"}
 
 
+@tool("Readable channel for BLIND RCE: action=start opens a local HTTP sink and tells you how "
+      "to send command output to it (base64); action=poll returns the decoded output you received; "
+      "action=stop closes it. Use this to run ANY command through blind RCE and READ its output "
+      "(incl. flags) — never ask the operator to paste output. CONSENT-GATED.",
+      {"action": {"type": "string", "enum": ["start", "poll", "stop"]}, "port": {"type": "integer"}},
+      [],
+      scope_exempt=True)
 async def exfil(ctx: ScanContext, args: dict) -> dict:
     """Readable channel for BLIND RCE: start a local HTTP sink, inject a command that sends output
     to it (base64), then poll to read the decoded output."""
@@ -1523,6 +1732,12 @@ async def exfil(ctx: ScanContext, args: dict) -> dict:
                     f"transport), from what you observed about this machine. Then exfil(action=poll) to read it."}
 
 
+@tool("Reverse-shell catcher: action=start opens a listener at your ip:port (you craft and "
+      "deliver the reverse shell yourself, tuned to this target); action=status shows if a shell "
+      "connected; action=stop closes it. After it connects, use shell_exec. CONSENT-GATED.",
+      {"action": {"type": "string", "enum": ["start", "status", "stop"]}, "port": {"type": "integer"}},
+      [],
+      scope_exempt=True)
 async def listener(ctx: ScanContext, args: dict) -> dict:
     """Reverse-shell catcher: start a listener, inject a reverse shell, then use shell_exec."""
     action = str(args.get("action") or "start").lower()
@@ -1551,6 +1766,11 @@ async def listener(ctx: ScanContext, args: dict) -> dict:
                     f"bash or nc). After delivering it, poll listener(action=status); once connected, use shell_exec."}
 
 
+@tool("Run a command in the connected reverse shell and return its output — read the "
+      "user/root flags, enumerate, escalate. Requires a shell from listener. CONSENT-GATED.",
+      {"command": {"type": "string"}},
+      ["command"],
+      scope_exempt=True)
 async def shell_exec(ctx: ScanContext, args: dict) -> dict:
     """Run a command in the connected reverse shell and return its output (read flags, enumerate)."""
     command = str(args.get("command") or args.get("cmd") or "").strip()
@@ -1645,6 +1865,11 @@ def _hash_hunt(text: str) -> list[str]:
             if ln.strip().startswith(("$krb5asrep$", "$krb5tgs$", "$krb5pa$"))]
 
 
+@tool("Validate/enumerate domain usernames via Kerberos pre-auth — no password, "
+      "no lockout. Give a domain, the DC, and a list of candidate usernames. Read-only.",
+      {"domain": {"type": "string"}, "dc_ip": {"type": "string"}, "target": {"type": "string"},
+       "users": {"type": "array", "items": {"type": "string"}, "description": "candidate usernames"}},
+      ["domain"])
 async def kerbrute_userenum(ctx: ScanContext, args: dict) -> dict:
     """Validate/enumerate domain usernames via Kerberos pre-auth (no password needed, no lockout)."""
     domain = str(args.get("domain") or "").strip()
@@ -1669,6 +1894,11 @@ async def kerbrute_userenum(ctx: ScanContext, args: dict) -> dict:
             "raw_tail": r["stdout"][-600:]}
 
 
+@tool("AS-REP roast: recover crackable Kerberos hashes for accounts with pre-auth "
+      "disabled. Needs NO credentials — just a domain + user(s). Returns $krb5asrep hashes. Read-only.",
+      {"domain": {"type": "string"}, "dc_ip": {"type": "string"}, "user": {"type": "string"},
+       "users": {"type": "array", "items": {"type": "string"}}},
+      ["domain"])
 async def asrep_roast(ctx: ScanContext, args: dict) -> dict:
     """AS-REP roast: get crackable hashes for accounts with pre-auth disabled (no creds needed)."""
     domain, user, password, nthash, dc = _auth_principal(args)
@@ -1698,6 +1928,11 @@ async def asrep_roast(ctx: ScanContext, args: dict) -> dict:
     return {"domain": domain, "hashes": hashes, "count": len(hashes), "raw_tail": r["stdout"][-600:]}
 
 
+@tool("Kerberoast: request service tickets for SPN accounts -> crackable $krb5tgs "
+      "hashes. Needs valid domain creds. Read-only.",
+      {"domain": {"type": "string"}, "dc_ip": {"type": "string"}, "user": {"type": "string"},
+       "password": {"type": "string"}, "nthash": {"type": "string"}},
+      ["domain", "user"])
 async def kerberoast(ctx: ScanContext, args: dict) -> dict:
     """Kerberoast: request service tickets for SPN accounts -> crackable $krb5tgs hashes (needs creds)."""
     domain, user, password, nthash, dc = _auth_principal(args)
@@ -1717,6 +1952,12 @@ async def kerberoast(ctx: ScanContext, args: dict) -> dict:
     return {"domain": domain, "hashes": hashes, "count": len(hashes), "raw_tail": r["stdout"][-800:]}
 
 
+@tool("Enumerate the domain over LDAP (netexec): users, groups, computers, password "
+      "policy, account descriptions, AS-REP-able/Kerberoastable accounts, trusts. Null/anonymous bind "
+      "or supplied creds/hash. Read-only.",
+      {"target": {"type": "string"}, "dc_ip": {"type": "string"}, "domain": {"type": "string"},
+       "user": {"type": "string"}, "password": {"type": "string"}, "nthash": {"type": "string"}},
+      [])
 async def ldap_enum(ctx: ScanContext, args: dict) -> dict:
     """Enumerate the domain over LDAP via netexec: users, groups, computers, password policy,
     account descriptions (often hold passwords), AS-REP-able and Kerberoastable accounts, trusts.
@@ -1738,6 +1979,11 @@ async def ldap_enum(ctx: ScanContext, args: dict) -> dict:
             "output": _clean_nxc(r["stdout"] + "\n" + r["stderr"])[-6000:]}
 
 
+@tool("RID-cycle a host over SMB to pull domain users/groups — works over a null session. "
+      "Read-only.",
+      {"target": {"type": "string"}, "domain": {"type": "string"}, "user": {"type": "string"},
+       "password": {"type": "string"}, "nthash": {"type": "string"}},
+      [])
 async def rid_brute(ctx: ScanContext, args: dict) -> dict:
     """RID-cycle a host over SMB to pull domain users/groups — works even over a null session. Read-only."""
     domain, user, password, nthash, dc = _auth_principal(args)
@@ -1755,6 +2001,10 @@ async def rid_brute(ctx: ScanContext, args: dict) -> dict:
             "raw_tail": _clean_nxc(r["stdout"])[-1500:]}
 
 
+@tool("List SMB shares and read/write access on a host (null session or creds). Read-only.",
+      {"target": {"type": "string"}, "host": {"type": "string"}, "domain": {"type": "string"},
+       "user": {"type": "string"}, "password": {"type": "string"}, "nthash": {"type": "string"}},
+      [])
 async def smb_shares(ctx: ScanContext, args: dict) -> dict:
     """List SMB shares and read/write access on a host (null session or creds). Read-only."""
     domain, user, password, nthash, dc = _auth_principal(args)
@@ -1773,6 +2023,14 @@ async def smb_shares(ctx: ScanContext, args: dict) -> dict:
             "pwned": "Pwn3d!" in r["stdout"]}
 
 
+@tool("Download ONE file from an SMB share and read its contents (capped 256 KiB) — the "
+      "SMB counterpart to ftp_get. Null session or creds/nthash (pass-the-hash). Read-only. After "
+      "smb_shares finds a readable share, pull a config/backup/flag out of it.",
+      {"target": {"type": "string"}, "host": {"type": "string"}, "domain": {"type": "string"},
+       "user": {"type": "string"}, "password": {"type": "string"}, "nthash": {"type": "string"},
+       "share": {"type": "string", "description": "share name, default C$"},
+       "path": {"type": "string", "description": "share-relative path, e.g. 'Users\\\\Public\\\\flag.txt'"}},
+      ["path"])
 async def smb_get(ctx: ScanContext, args: dict) -> dict:
     """Download ONE file from an SMB share and return its contents (capped 256 KiB) — the SMB
     counterpart to ftp_get. Null session or creds/nthash (pass-the-hash). Read-only. Give the
@@ -1821,6 +2079,13 @@ async def smb_get(ctx: ScanContext, args: dict) -> dict:
             pass
 
 
+@tool("Spray ONE password across MANY users over a protocol "
+      "(smb/ldap/winrm/mssql/rdp/ssh). CONSENT-GATED — account-lockout risk; check the password "
+      "policy first. Returns which user/password pairs are valid.",
+      {"target": {"type": "string"}, "proto": {"type": "string"}, "domain": {"type": "string"},
+       "users": {"type": "array", "items": {"type": "string"}},
+       "spray_password": {"type": "string"}},
+      ["users", "spray_password"])
 async def password_spray(ctx: ScanContext, args: dict) -> dict:
     """Spray ONE password across many users over a protocol (smb/ldap/winrm/mssql/rdp/ssh).
     CONSENT-GATED — account-lockout risk. Always check the password policy first."""
@@ -1853,6 +2118,12 @@ async def password_spray(ctx: ScanContext, args: dict) -> dict:
             "raw_tail": _clean_nxc(r["stdout"])[-1500:]}
 
 
+@tool("Dump credential material: local SAM/LSA secrets, or domain NTDS.dit hashes "
+      "(dump_type='ntds' against a DC). Supports pass-the-hash. CONSENT-GATED.",
+      {"target": {"type": "string"}, "domain": {"type": "string"}, "user": {"type": "string"},
+       "password": {"type": "string"}, "nthash": {"type": "string"},
+       "dump_type": {"type": "string", "enum": ["local", "ntds"]}},
+      ["user"])
 async def secretsdump(ctx: ScanContext, args: dict) -> dict:
     """Dump credential material from a host: local SAM/LSA secrets, or domain NTDS.dit hashes
     (dump_type='ntds', run against a DC). CONSENT-GATED."""
@@ -1880,6 +2151,12 @@ async def secretsdump(ctx: ScanContext, args: dict) -> dict:
             "raw_tail": r["stdout"][-1200:]}
 
 
+@tool("Execute a command on a Windows host and read output — SMB (wmiexec/psexec/smbexec) "
+      "or WinRM. Pass-the-hash via nthash. CONSENT-GATED (code execution).",
+      {"target": {"type": "string"}, "domain": {"type": "string"}, "user": {"type": "string"},
+       "password": {"type": "string"}, "nthash": {"type": "string"}, "command": {"type": "string"},
+       "method": {"type": "string", "enum": ["wmiexec", "psexec", "smbexec", "atexec", "winrm"]}},
+      ["user", "command"])
 async def win_exec(ctx: ScanContext, args: dict) -> dict:
     """Execute a command on a Windows host and read the output — over SMB (wmiexec/psexec/smbexec)
     or WinRM. Pass-the-hash supported via nthash. CONSENT-GATED (code execution)."""
@@ -1914,6 +2191,14 @@ async def win_exec(ctx: ScanContext, args: dict) -> dict:
             "output": _clean_nxc(r["stdout"] + r["stderr"])[-6000:]}
 
 
+@tool("Execute a command on a Linux/Unix host over SSH and read the output — the Linux "
+      "counterpart to win_exec. Auth with a password OR a private key file. CONSENT-GATED (code "
+      "execution). Run this on ANY SSH credential you recover (e.g. from cred_check) to enumerate, "
+      "read flags and escalate — a validated SSH login is a dead end without it.",
+      {"target": {"type": "string"}, "host": {"type": "string"}, "user": {"type": "string"},
+       "password": {"type": "string"}, "key_file": {"type": "string", "description": "path to a private key (alternative to password)"},
+       "port": {"type": "integer", "description": "default 22"}, "command": {"type": "string"}},
+      ["user", "command"])
 async def ssh_exec(ctx: ScanContext, args: dict) -> dict:
     """Execute a command on a Linux/Unix host over SSH and read the output — the Linux
     counterpart to win_exec. Auth with a password OR a private key file. CONSENT-GATED
@@ -1945,6 +2230,11 @@ async def ssh_exec(ctx: ScanContext, args: dict) -> dict:
             "output": _clean_nxc(r["stdout"] + r["stderr"])[-6000:]}
 
 
+@tool("Collect AD attack-path data (users/groups/ACLs/sessions/GPOs/trusts) "
+      "into a BloodHound zip via bloodhound-python. Read-only, heavy. Needs domain creds.",
+      {"domain": {"type": "string"}, "dc_ip": {"type": "string"}, "user": {"type": "string"},
+       "password": {"type": "string"}, "nthash": {"type": "string"}},
+      ["domain", "user"])
 async def bloodhound_collect(ctx: ScanContext, args: dict) -> dict:
     """Collect AD attack-path data (users, groups, ACLs, sessions, GPOs, trusts) into BloodHound
     JSON/zip via bloodhound-python. Read-only but heavy. Needs domain creds."""
@@ -1969,6 +2259,11 @@ async def bloodhound_collect(ctx: ScanContext, args: dict) -> dict:
             "raw_tail": (r["stdout"] + r["stderr"])[-800:]}
 
 
+@tool("Enumerate AD Certificate Services and flag vulnerable templates (ESC1-ESC16) via "
+      "certipy. Read-only. Needs domain creds.",
+      {"domain": {"type": "string"}, "dc_ip": {"type": "string"}, "user": {"type": "string"},
+       "password": {"type": "string"}, "nthash": {"type": "string"}},
+      ["domain", "user"])
 async def adcs_find(ctx: ScanContext, args: dict) -> dict:
     """Enumerate AD Certificate Services and flag vulnerable templates (ESC1-ESC16) via certipy.
     Read-only (find). Needs domain creds."""
@@ -1988,6 +2283,11 @@ async def adcs_find(ctx: ScanContext, args: dict) -> dict:
     return {"domain": domain, "output": (r["stdout"] + r["stderr"])[-6000:]}
 
 
+@tool("SAFE detection-only checks for known DC/Windows flaws (Zerologon, noPac, "
+      "PetitPotam, MS17-010) via netexec modules — detection, NOT exploitation. Read-only.",
+      {"target": {"type": "string"}, "user": {"type": "string"}, "password": {"type": "string"},
+       "checks": {"type": "array", "items": {"type": "string"}}},
+      [])
 async def dc_vuln_check(ctx: ScanContext, args: dict) -> dict:
     """Run SAFE detection-only checks for well-known DC/Windows flaws (Zerologon, noPac, PetitPotam
     coercion, MS17-010) via netexec modules — detection, NOT exploitation. Read-only."""
@@ -2014,6 +2314,12 @@ async def dc_vuln_check(ctx: ScanContext, args: dict) -> dict:
     return {"target": target, "vulnerable": vulnerable, "checks": results}
 
 
+@tool("Crack recovered hashes OFFLINE (hashcat/john) against a wordlist. Safe — no "
+      "target contact. hash_type is a hashcat mode (18200 AS-REP, 13100 Kerberoast, 1000 NTLM).",
+      {"hashes": {"type": "array", "items": {"type": "string"}}, "hash_type": {"type": "string"},
+       "wordlist": {"type": "string", "description": "path to a wordlist, e.g. rockyou.txt"}},
+      ["hashes", "wordlist"],
+      scope_exempt=True)
 async def hash_crack(ctx: ScanContext, args: dict) -> dict:
     """Crack recovered hashes OFFLINE with hashcat (or john) against a wordlist. Safe — no target
     contact. hash_type is a hashcat mode (e.g. 18200 AS-REP, 13100 Kerberoast, 1000 NTLM)."""
@@ -2051,6 +2357,15 @@ async def hash_crack(ctx: ScanContext, args: dict) -> dict:
             pass
 
 
+@tool("Validate ONE credential across the target's auth services (smb/winrm/rdp/ldap/"
+      "mssql/ssh/ftp) via netexec — 'where does this credential actually work?'. Read-only. Run this "
+      "on ANY credential you recover: one that fails one service often works another (e.g. RDP but "
+      "not WinRM), so never conclude from a single service.",
+      {"target": {"type": "string"}, "user": {"type": "string"}, "password": {"type": "string"},
+       "nthash": {"type": "string"}, "domain": {"type": "string"},
+       "services": {"type": "array", "items": {"type": "string"},
+       "description": "subset to test; default smb,winrm,rdp,ldap,mssql,ssh,ftp"}},
+      ["user"])
 async def cred_check(ctx: ScanContext, args: dict) -> dict:
     """Validate ONE credential across the target's auth services (smb/winrm/rdp/ldap/mssql/ssh/ftp)
     via netexec — the 'where does this credential actually work?' check. Read-only (no exec, one
@@ -2090,6 +2405,14 @@ async def cred_check(ctx: ScanContext, args: dict) -> dict:
             "services": results}
 
 
+@tool("Your engagement working-memory: surface (open services), creds (+ where tested), "
+      "facts, ranked hypotheses (with status), and what you've tried. action='show' returns it; "
+      "action='update' merges `data` (list fields append+dedup). Review it before deciding the next "
+      "move so you don't circle or leave an obvious lead (a found cred, an untested service) untouched.",
+      {"action": {"type": "string", "enum": ["show", "update", "clear"]},
+       "data": {"type": "object", "description": "fields to merge, e.g. {\"creds\":[...],\"hypotheses\":[...],\"tried\":[...]}"}},
+      [],
+      scope_exempt=True)
 async def ledger(ctx: ScanContext, args: dict) -> dict:
     """Your engagement working-memory. Holds what you KNOW (attack `surface`, `creds` + where each was
     tested, `facts`), your open `hypotheses` (rank them, mark status), and what you've `tried`.
@@ -2117,228 +2440,7 @@ async def ledger(ctx: ScanContext, args: dict) -> dict:
     return {"ledger": ctx.ledger}
 
 
-# ── Function-calling schemas + dispatch ───────────────────────────────────────
-
-def _fn(name: str, desc: str, props: dict, required: list[str]) -> dict:
-    return {
-        "type": "function",
-        "function": {
-            "name": name,
-            "description": desc,
-            "parameters": {"type": "object", "properties": props, "required": required},
-        },
-    }
-
-
-TOOL_SCHEMAS = [
-    _fn("set_target", "Set/replace the authorized scope FROM THE OPERATOR'S REQUEST. Accepts an IP, "
-        "CIDR, domain, OR a local interface name (e.g. 'en0', 'eth0', 'wlan0') or 'local'/'lan' for "
-        "this machine's own subnet. Call this whenever the operator tells you what to scan instead of "
-        "refusing for lack of a preset target. 'en0 /24' -> the /24 that interface is on.",
-        {"target": {"type": "string", "description": "ip | cidr | domain | interface (en0) | 'local'"},
-         "prefix": {"type": "integer", "description": "optional CIDR prefix, e.g. 24, for a subnet around an interface IP"}},
-        ["target"]),
-    _fn("port_scan", "TCP port scan (SYN if root, else connect). Returns open ports with service names. "
-        "YOU control nmap flags via nmap_args — e.g. pass '-Pn' for a known-live host so discovery "
-        "doesn't falsely mark it down on a full scan.",
-        {"target": {"type": "string"}, "ports": {"type": "string",
-                                                 "description": "top-1000|top-100|common|all|explicit '22,80,443' or '1-1024'"},
-         "nmap_args": {"type": "string", "description": "extra nmap flags you choose, e.g. '-Pn -T2' (destructive scripts refused)"}},
-        []),
-    _fn("service_detect", "nmap version detection (-sV): exact service name/product/version per port.",
-        {"target": {"type": "string"}, "ports": {"type": "string", "description": "optional port list; defaults to top-1000"},
-         "nmap_args": {"type": "string", "description": "extra nmap flags you choose, e.g. '-Pn --version-all'"}}, []),
-    _fn("vuln_scan", "nmap detection scripts (vuln+safe) for known CVEs/misconfigs. Run AFTER service_detect.",
-        {"target": {"type": "string"}, "ports": {"type": "string", "description": "optional port list"},
-         "nmap_args": {"type": "string", "description": "extra nmap flags you choose, e.g. '-Pn' or '--script ssl-enum-ciphers'"}}, []),
-    _fn("os_detect", "nmap OS fingerprint (-O).",
-        {"target": {"type": "string"}, "nmap_args": {"type": "string", "description": "extra nmap flags, e.g. '-Pn'"}}, []),
-    _fn("ping_sweep", "Live-host discovery (-sn). Best first step for a CIDR target.",
-        {"target": {"type": "string"}}, []),
-    _fn("dns_enum", "DNS records (A/AAAA/CNAME/MX/NS/TXT) for a domain.",
-        {"domain": {"type": "string"}}, []),
-    _fn("banner_grab", "Raw banner from one host:port (for a port nmap didn't identify).",
-        {"host": {"type": "string"}, "port": {"type": "integer"}}, ["host", "port"]),
-    _fn("http_probe", "Fetch a web page and SEE it: status, server, title, body excerpt, links, "
-        "forms (action/method/input names) and HTML comments. Use this to actually READ a web app.",
-        {"host": {"type": "string"}, "port": {"type": "integer"}, "path": {"type": "string"}}, ["host", "port"]),
-    _fn("content_discovery", "Map a web app's hidden paths/endpoints: probes a built-in list of common "
-        "paths (+ any you add) and returns which exist (non-404) with status/size. Run this early on any web service.",
-        {"host": {"type": "string"}, "port": {"type": "integer"},
-         "paths": {"type": "array", "items": {"type": "string"},
-                   "description": "extra paths to also try, e.g. ['/api/users','/v2/login']"}}, ["host"]),
-    _fn("web_request", "Send a CUSTOM HTTP request (any method/path/headers/body/params) and get the full "
-        "parsed response — for testing endpoints, logins, parameters, auth bypass, IDOR. This is how you "
-        "interact with and exploit a web app's own logic (what nuclei can't do on a custom app).",
-        {"host": {"type": "string"}, "port": {"type": "integer"},
-         "method": {"type": "string", "description": "GET|POST|PUT|DELETE|..."},
-         "path": {"type": "string"}, "headers": {"type": "object"}, "params": {"type": "object"},
-         "data": {"type": "object", "description": "form fields for a POST"},
-         "json": {"type": "object", "description": "JSON request body"}}, ["host", "path"]),
-    _fn("http_download", "Download an HTTP response in FULL, binary-safe, and extract what matters: "
-        "the text (or a strings extraction for binary — pcaps, zips, backups, images) PLUS any "
-        "credentials found inside (HTTP Basic, FTP USER/PASS, user/password/token pairs). Use when a "
-        "path is a file/binary or when http_probe's body was truncated. Don't judge a file by its first KB.",
-        {"host": {"type": "string"}, "port": {"type": "integer"}, "path": {"type": "string"},
-         "method": {"type": "string"}, "headers": {"type": "object"}}, ["host", "path"]),
-    _fn("run_nmap", "Full-control nmap — YOU write the flags (scan type, -Pn, -p, timing, detection "
-        "scripts, ...). Only destructive NSE scripts are refused. Use this when the preset scans don't fit.",
-        {"target": {"type": "string"}, "args": {"type": "string", "description": "e.g. '-sU --top-ports 100' or '-sV --script ssl-enum-ciphers -p 443'"}}, ["args"]),
-    _fn("nuclei_scan", "Run nuclei (thousands of known-CVE / misconfig / exposure templates) over target URLs. Use after discovering HTTP/network services.",
-        {"targets": {"type": "array", "items": {"type": "string"},
-                     "description": "Absolute URLs or host:port, e.g. ['http://host:80','host:445']"},
-         "severity": {"type": "string", "description": "comma list, default low,medium,high,critical"}}, []),
-    _fn("request_consent", "STOP and ask the operator before a high-impact action (active exploitation, brute-force, mass traffic). Returns approved/denied.",
-        {"action": {"type": "string"}, "target": {"type": "string"},
-         "risk": {"type": "string", "enum": ["medium", "high", "critical"]}}, ["action", "target"]),
-    _fn("exploit_search", "Search public exploits for a service/version (searchsploit + nuclei template names). Read-only — use after fingerprinting a version.",
-        {"service": {"type": "string"}, "version": {"type": "string"}}, ["service"]),
-    _fn("ftp_anon", "FTP login + directory listing (read-only recon). Anonymous by default; pass "
-        "user/password to test credentials you found elsewhere.",
-        {"host": {"type": "string"}, "port": {"type": "integer"},
-         "user": {"type": "string"}, "password": {"type": "string"}}, ["host"]),
-    _fn("ftp_get", "Download ONE file over FTP and read its contents (capped 256 KiB) — a config, "
-        "backup, source file, or flag. Anonymous by default; pass user/password for an account.",
-        {"host": {"type": "string"}, "port": {"type": "integer"}, "path": {"type": "string"},
-         "user": {"type": "string"}, "password": {"type": "string"}}, ["host", "path"]),
-    _fn("smb_enum", "Enumerate SMB (445): OS/domain, dialects, signing, shares, users, sessions via "
-        "nmap's safe SMB scripts. Read-only, no brute-force. FIRST move whenever 445 is open.",
-        {"host": {"type": "string"}, "port": {"type": "integer"}}, ["host"]),
-    _fn("ssl_info", "Inspect TLS on a port: certificate (subject/issuer/SAN/validity) + supported "
-        "ciphers/protocols (nmap ssl-cert + ssl-enum-ciphers). Read-only.",
-        {"host": {"type": "string"}, "port": {"type": "integer"}}, ["host"]),
-    _fn("tcp_send", "Send raw bytes to a TCP port and read the reply — speak any protocol banner_grab "
-        "can't (Redis 'INFO', memcached 'stats', a DB handshake, a custom service). data is text with "
-        "\\r\\n/\\t escapes honored; set hex=true to send a hex string. Read/recon only.",
-        {"host": {"type": "string"}, "port": {"type": "integer"},
-         "data": {"type": "string", "description": "payload to send; empty just reads the greeting"},
-         "hex": {"type": "boolean", "description": "true: interpret data as a hex string"},
-         "crlf": {"type": "boolean", "description": "append CRLF if missing (default true)"},
-         "read_bytes": {"type": "integer"}, "timeout": {"type": "number"}}, ["host", "port"]),
-    _fn("snmp_check", "Read SNMP system info with a community string (default 'public'). Read-only recon.",
-        {"host": {"type": "string"}, "community": {"type": "string"}}, ["host"]),
-    _fn("attacker_info", "The attacker IP the target can reach you on (for reverse shells / exfil callbacks). Read-only.",
-        {}, []),
-    _fn("exfil", "Readable channel for BLIND RCE: action=start opens a local HTTP sink and tells you how "
-        "to send command output to it (base64); action=poll returns the decoded output you received; "
-        "action=stop closes it. Use this to run ANY command through blind RCE and READ its output "
-        "(incl. flags) — never ask the operator to paste output. CONSENT-GATED.",
-        {"action": {"type": "string", "enum": ["start", "poll", "stop"]}, "port": {"type": "integer"}}, []),
-    _fn("listener", "Reverse-shell catcher: action=start opens a listener at your ip:port (you craft and "
-        "deliver the reverse shell yourself, tuned to this target); action=status shows if a shell "
-        "connected; action=stop closes it. After it connects, use shell_exec. CONSENT-GATED.",
-        {"action": {"type": "string", "enum": ["start", "status", "stop"]}, "port": {"type": "integer"}}, []),
-    _fn("shell_exec", "Run a command in the connected reverse shell and return its output — read the "
-        "user/root flags, enumerate, escalate. Requires a shell from listener. CONSENT-GATED.",
-        {"command": {"type": "string"}}, ["command"]),
-    _fn("hydra_brute", "Brute-force credentials on one service with hydra. CONSENT-GATED — only runs if approved. Use only when the target warrants it and after cheaper checks fail.",
-        {"target": {"type": "string"},
-         "service": {"type": "string", "description": "hydra protocol: ftp|ssh|rdp|smb|mysql|postgres|smtp|http-get|..."},
-         "port": {"type": "integer"}, "username": {"type": "string"},
-         "wordlist": {"type": "string", "description": "path to a password list; omit for a small built-in list"}},
-        ["target", "service", "port"]),
-    _fn("note", "Record a fact/hypothesis about the target (scratchpad).",
-        {"text": {"type": "string"}}, ["text"]),
-    _fn("report_finding", "File ONE confirmed finding (severity + evidence + remediation).",
-        {"host": {"type": "string"}, "port": {"type": "integer"}, "service": {"type": "string"},
-         "title": {"type": "string"}, "severity": {"type": "string", "enum": ["critical", "high", "medium", "low", "info"]},
-         "confidence": {"type": "string", "enum": ["confirmed", "probable", "possible"]},
-         "evidence": {"type": "string"}, "remediation": {"type": "string"}},
-        ["host", "title", "severity"]),
-    _fn("get_findings", "List findings reported so far.", {}, []),
-    # ── Active Directory / Windows ──
-    _fn("kerbrute_userenum", "Validate/enumerate domain usernames via Kerberos pre-auth — no password, "
-        "no lockout. Give a domain, the DC, and a list of candidate usernames. Read-only.",
-        {"domain": {"type": "string"}, "dc_ip": {"type": "string"}, "target": {"type": "string"},
-         "users": {"type": "array", "items": {"type": "string"}, "description": "candidate usernames"}},
-        ["domain"]),
-    _fn("asrep_roast", "AS-REP roast: recover crackable Kerberos hashes for accounts with pre-auth "
-        "disabled. Needs NO credentials — just a domain + user(s). Returns $krb5asrep hashes. Read-only.",
-        {"domain": {"type": "string"}, "dc_ip": {"type": "string"}, "user": {"type": "string"},
-         "users": {"type": "array", "items": {"type": "string"}}}, ["domain"]),
-    _fn("kerberoast", "Kerberoast: request service tickets for SPN accounts -> crackable $krb5tgs "
-        "hashes. Needs valid domain creds. Read-only.",
-        {"domain": {"type": "string"}, "dc_ip": {"type": "string"}, "user": {"type": "string"},
-         "password": {"type": "string"}, "nthash": {"type": "string"}}, ["domain", "user"]),
-    _fn("ldap_enum", "Enumerate the domain over LDAP (netexec): users, groups, computers, password "
-        "policy, account descriptions, AS-REP-able/Kerberoastable accounts, trusts. Null/anonymous bind "
-        "or supplied creds/hash. Read-only.",
-        {"target": {"type": "string"}, "dc_ip": {"type": "string"}, "domain": {"type": "string"},
-         "user": {"type": "string"}, "password": {"type": "string"}, "nthash": {"type": "string"}}, []),
-    _fn("rid_brute", "RID-cycle a host over SMB to pull domain users/groups — works over a null session. "
-        "Read-only.",
-        {"target": {"type": "string"}, "domain": {"type": "string"}, "user": {"type": "string"},
-         "password": {"type": "string"}, "nthash": {"type": "string"}}, []),
-    _fn("smb_shares", "List SMB shares and read/write access on a host (null session or creds). Read-only.",
-        {"target": {"type": "string"}, "host": {"type": "string"}, "domain": {"type": "string"},
-         "user": {"type": "string"}, "password": {"type": "string"}, "nthash": {"type": "string"}}, []),
-    _fn("smb_get", "Download ONE file from an SMB share and read its contents (capped 256 KiB) — the "
-        "SMB counterpart to ftp_get. Null session or creds/nthash (pass-the-hash). Read-only. After "
-        "smb_shares finds a readable share, pull a config/backup/flag out of it.",
-        {"target": {"type": "string"}, "host": {"type": "string"}, "domain": {"type": "string"},
-         "user": {"type": "string"}, "password": {"type": "string"}, "nthash": {"type": "string"},
-         "share": {"type": "string", "description": "share name, default C$"},
-         "path": {"type": "string", "description": "share-relative path, e.g. 'Users\\\\Public\\\\flag.txt'"}},
-        ["path"]),
-    _fn("password_spray", "Spray ONE password across MANY users over a protocol "
-        "(smb/ldap/winrm/mssql/rdp/ssh). CONSENT-GATED — account-lockout risk; check the password "
-        "policy first. Returns which user/password pairs are valid.",
-        {"target": {"type": "string"}, "proto": {"type": "string"}, "domain": {"type": "string"},
-         "users": {"type": "array", "items": {"type": "string"}},
-         "spray_password": {"type": "string"}}, ["users", "spray_password"]),
-    _fn("secretsdump", "Dump credential material: local SAM/LSA secrets, or domain NTDS.dit hashes "
-        "(dump_type='ntds' against a DC). Supports pass-the-hash. CONSENT-GATED.",
-        {"target": {"type": "string"}, "domain": {"type": "string"}, "user": {"type": "string"},
-         "password": {"type": "string"}, "nthash": {"type": "string"},
-         "dump_type": {"type": "string", "enum": ["local", "ntds"]}}, ["user"]),
-    _fn("win_exec", "Execute a command on a Windows host and read output — SMB (wmiexec/psexec/smbexec) "
-        "or WinRM. Pass-the-hash via nthash. CONSENT-GATED (code execution).",
-        {"target": {"type": "string"}, "domain": {"type": "string"}, "user": {"type": "string"},
-         "password": {"type": "string"}, "nthash": {"type": "string"}, "command": {"type": "string"},
-         "method": {"type": "string", "enum": ["wmiexec", "psexec", "smbexec", "atexec", "winrm"]}},
-        ["user", "command"]),
-    _fn("ssh_exec", "Execute a command on a Linux/Unix host over SSH and read the output — the Linux "
-        "counterpart to win_exec. Auth with a password OR a private key file. CONSENT-GATED (code "
-        "execution). Run this on ANY SSH credential you recover (e.g. from cred_check) to enumerate, "
-        "read flags and escalate — a validated SSH login is a dead end without it.",
-        {"target": {"type": "string"}, "host": {"type": "string"}, "user": {"type": "string"},
-         "password": {"type": "string"}, "key_file": {"type": "string", "description": "path to a private key (alternative to password)"},
-         "port": {"type": "integer", "description": "default 22"}, "command": {"type": "string"}},
-        ["user", "command"]),
-    _fn("bloodhound_collect", "Collect AD attack-path data (users/groups/ACLs/sessions/GPOs/trusts) "
-        "into a BloodHound zip via bloodhound-python. Read-only, heavy. Needs domain creds.",
-        {"domain": {"type": "string"}, "dc_ip": {"type": "string"}, "user": {"type": "string"},
-         "password": {"type": "string"}, "nthash": {"type": "string"}}, ["domain", "user"]),
-    _fn("adcs_find", "Enumerate AD Certificate Services and flag vulnerable templates (ESC1-ESC16) via "
-        "certipy. Read-only. Needs domain creds.",
-        {"domain": {"type": "string"}, "dc_ip": {"type": "string"}, "user": {"type": "string"},
-         "password": {"type": "string"}, "nthash": {"type": "string"}}, ["domain", "user"]),
-    _fn("dc_vuln_check", "SAFE detection-only checks for known DC/Windows flaws (Zerologon, noPac, "
-        "PetitPotam, MS17-010) via netexec modules — detection, NOT exploitation. Read-only.",
-        {"target": {"type": "string"}, "user": {"type": "string"}, "password": {"type": "string"},
-         "checks": {"type": "array", "items": {"type": "string"}}}, []),
-    _fn("hash_crack", "Crack recovered hashes OFFLINE (hashcat/john) against a wordlist. Safe — no "
-        "target contact. hash_type is a hashcat mode (18200 AS-REP, 13100 Kerberoast, 1000 NTLM).",
-        {"hashes": {"type": "array", "items": {"type": "string"}}, "hash_type": {"type": "string"},
-         "wordlist": {"type": "string", "description": "path to a wordlist, e.g. rockyou.txt"}},
-        ["hashes", "wordlist"]),
-    _fn("cred_check", "Validate ONE credential across the target's auth services (smb/winrm/rdp/ldap/"
-        "mssql/ssh/ftp) via netexec — 'where does this credential actually work?'. Read-only. Run this "
-        "on ANY credential you recover: one that fails one service often works another (e.g. RDP but "
-        "not WinRM), so never conclude from a single service.",
-        {"target": {"type": "string"}, "user": {"type": "string"}, "password": {"type": "string"},
-         "nthash": {"type": "string"}, "domain": {"type": "string"},
-         "services": {"type": "array", "items": {"type": "string"},
-                      "description": "subset to test; default smb,winrm,rdp,ldap,mssql,ssh,ftp"}},
-        ["user"]),
-    _fn("ledger", "Your engagement working-memory: surface (open services), creds (+ where tested), "
-        "facts, ranked hypotheses (with status), and what you've tried. action='show' returns it; "
-        "action='update' merges `data` (list fields append+dedup). Review it before deciding the next "
-        "move so you don't circle or leave an obvious lead (a found cred, an untested service) untouched.",
-        {"action": {"type": "string", "enum": ["show", "update", "clear"]},
-         "data": {"type": "object", "description": "fields to merge, e.g. {\"creds\":[...],\"hypotheses\":[...],\"tried\":[...]}"}},
-        []),
-]
+# ── Dispatch ──────────────────────────────────────────────────────────────────
 
 
 def _guarded(name: str, fn: Callable[..., Any], ctx: ScanContext) -> Callable[[dict], Any]:
@@ -2354,58 +2456,9 @@ def _guarded(name: str, fn: Callable[..., Any], ctx: ScanContext) -> Callable[[d
 
 
 def build_dispatch(ctx: ScanContext) -> dict[str, Callable[[dict], Any]]:
-    """Tool name -> coroutine, each one scope-guarded. Add a tool here and it is guarded
-    automatically; see _SCOPE_EXEMPT_TOOLS for the ones with no network target."""
-    impls: dict[str, Callable[..., Any]] = {
-        "set_target":         set_target,
-        "port_scan":          port_scan,
-        "service_detect":     service_detect,
-        "vuln_scan":          vuln_scan,
-        "os_detect":          os_detect,
-        "ping_sweep":         ping_sweep,
-        "dns_enum":           dns_enum,
-        "banner_grab":        banner_grab,
-        "http_probe":         http_probe,
-        "content_discovery":  content_discovery,
-        "web_request":        web_request,
-        "http_download":      http_download,
-        "run_nmap":           run_nmap,
-        "nuclei_scan":        nuclei_scan,
-        "request_consent":    request_consent,
-        "exploit_search":     exploit_search,
-        "ftp_anon":           ftp_anon,
-        "ftp_get":            ftp_get,
-        "smb_enum":           smb_enum,
-        "ssl_info":           ssl_info,
-        "tcp_send":           tcp_send,
-        "snmp_check":         snmp_check,
-        "kerbrute_userenum":  kerbrute_userenum,
-        "asrep_roast":        asrep_roast,
-        "kerberoast":         kerberoast,
-        "ldap_enum":          ldap_enum,
-        "rid_brute":          rid_brute,
-        "smb_shares":         smb_shares,
-        "smb_get":            smb_get,
-        "password_spray":     password_spray,
-        "secretsdump":        secretsdump,
-        "win_exec":           win_exec,
-        "ssh_exec":           ssh_exec,
-        "bloodhound_collect": bloodhound_collect,
-        "adcs_find":          adcs_find,
-        "dc_vuln_check":      dc_vuln_check,
-        "hash_crack":         hash_crack,
-        "cred_check":         cred_check,
-        "ledger":             ledger,
-        "hydra_brute":        hydra_brute,
-        "attacker_info":      attacker_info,
-        "exfil":              exfil,
-        "listener":           listener,
-        "shell_exec":         shell_exec,
-        "note":               note,
-        "report_finding":     report_finding,
-        "get_findings":       get_findings,
-    }
-    return {name: _guarded(name, fn, ctx) for name, fn in impls.items()}
+    """Tool name -> scope-guarded coroutine, built from the registry. Nothing to keep in
+    sync: a @tool-decorated function is dispatchable and guarded by that fact alone."""
+    return {name: _guarded(name, entry.fn, ctx) for name, entry in _REGISTRY.items()}
 
 
 def dependency_status() -> list[dict]:

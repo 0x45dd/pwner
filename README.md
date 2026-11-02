@@ -313,7 +313,7 @@ pwner/
 ├── LICENSE             # AGPL-3.0-or-later
 ├── pwner/
 │   ├── llm.py          # OpenAI-compatible client + agentic run_tools loop
-│   ├── tools.py        # nmap wrapper + DNS/banner/HTTP tools + scope/safety guard
+│   ├── tools.py        # @tool registry + nmap/DNS/HTTP/AD tools + scope & safety guard
 │   ├── prompts.py      # the agent's system prompt
 │   ├── agent.py        # agentic orchestration + deterministic fallback
 │   ├── repl.py         # interactive session logic (turns, commands) + plain fallback
@@ -325,6 +325,7 @@ pwner/
 ├── tests/              # offline suite — no nmap, no sockets, no API calls
 │   ├── test_scope.py           # the authorization boundary
 │   ├── test_consent.py         # the consent gate: granting, remembering, retracting
+│   ├── test_registry.py        # @tool declarations and the schemas they generate
 │   ├── test_nmap_parse.py      # nmap XML parsing against real -oX fixtures
 │   ├── test_safety_rails.py    # NSE blocklist + target-spec resolution
 │   └── test_llm_json.py        # JSON recovery from fenced/prose model output
@@ -336,7 +337,7 @@ pwner/
 
 ```bash
 pip install -e ".[dev]"    # adds pytest + ruff
-pytest                     # 163 tests, ~0.1s
+pytest                     # 265 tests, ~0.1s
 ruff check .
 ```
 
@@ -348,9 +349,30 @@ behind an explicit marker, not in the default run.
 The parts worth keeping covered are `tests/test_scope.py` and `tests/test_consent.py` —
 together they are the safety model. Scope decides *where* pwner may act, consent decides
 *whether* it may do the destructive things there; everything else is replaceable.
-`test_scope.py` also asserts that `TOOL_SCHEMAS` and `build_dispatch` stay in sync — those
-two lists are maintained by hand, and a tool present in one but missing from the other is
-exactly how three tools once drifted out of scope coverage.
+
+### Adding a tool
+
+One declaration site: decorate an async function with `@tool` and it is registered,
+advertised to the model, dispatchable and scope-guarded by that fact alone.
+
+```python
+@tool("What the model should know about this tool, in its own words.",
+      {"host": {"type": "string"}, "port": {"type": "integer"}},
+      ["host"])
+async def my_tool(ctx: ScanContext, args: dict) -> dict:
+    return {"ok": True}
+```
+
+`tool_schemas()`, `build_dispatch()` and the scope-exemption set are all derived from the
+registry, so there is no second or third list to update. Pass `scope_exempt=True` only for
+a tool with no network target (local bookkeeping, offline work, our own listener/exfil
+infrastructure) — it is the one way to opt out of the authorization boundary, and
+`test_scope.py` pins the exempt set by name so gaining it is never quiet.
+
+This replaced three hand-maintained declaration sites. A tool used to exist as a function,
+an entry in `TOOL_SCHEMAS` and an entry in `build_dispatch`, each added by hand — which is
+exactly how `ping_sweep`, `nuclei_scan` and `hydra_brute` ended up reaching the network
+with no scope check at all.
 
 ## License
 

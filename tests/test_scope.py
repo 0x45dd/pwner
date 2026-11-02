@@ -169,15 +169,27 @@ def test_enforce_scope_refuses_out_of_scope(tool, args, monkeypatch):
         _enforce_scope(tool, args, ctx("10.0.0.0/24"))
 
 
-@pytest.mark.parametrize("tool", sorted(tools._SCOPE_EXEMPT_TOOLS))
-def test_exempt_tools_are_not_scope_checked(tool):
-    """The exempt list is deliberate (local bookkeeping, offline work, our own
-    attacker-side infra). Assert it, so adding a network tool to it is a visible choice."""
-    _enforce_scope(tool, {"target": "8.8.8.8", "host": "8.8.8.8"}, ctx("10.0.0.0/24"))
+@pytest.mark.parametrize("tool_name", sorted(tools.scope_exempt_tools()))
+def test_exempt_tools_are_not_scope_checked(tool_name):
+    """Exemption is deliberate (local bookkeeping, offline work, our own attacker-side
+    infra). Assert it, so adding a network tool to it is a visible choice."""
+    _enforce_scope(tool_name, {"target": "8.8.8.8", "host": "8.8.8.8"}, ctx("10.0.0.0/24"))
 
 
-def test_exempt_list_contains_no_unknown_tool():
-    assert tools._SCOPE_EXEMPT_TOOLS <= set(build_dispatch(ctx("10.0.0.5")))
+def test_exempt_set_is_exactly_the_expected_tools():
+    """Pinned by name: scope_exempt=True is the one way to opt out of the authorization
+    boundary, so a tool quietly gaining it should fail here."""
+    assert tools.scope_exempt_tools() == {
+        "set_target", "note", "report_finding", "get_findings", "ledger", "request_consent",
+        "attacker_info", "exploit_search", "hash_crack", "listener", "exfil", "shell_exec",
+    }
+
+
+def test_unregistered_tool_name_is_still_scope_checked():
+    """Fails closed: a typo or a tool wired up outside the registry must not be waved
+    through the boundary just because the registry has never heard of it."""
+    with pytest.raises(ToolError, match="outside the authorized scope"):
+        _enforce_scope("not_a_real_tool", {"target": "8.8.8.8"}, ctx("10.0.0.0/24"))
 
 
 # ── regressions: tools that reached the network with no scope check ──────────
@@ -216,10 +228,11 @@ def test_every_dispatched_tool_is_wrapped():
     assert all(fn.__name__ == f"guarded_{name}" for name, fn in d.items())
 
 
-def test_dispatch_and_schemas_do_not_drift():
-    """TOOL_SCHEMAS and build_dispatch are maintained by hand; a tool present in one and
-    missing from the other is how ping_sweep/nuclei_scan drifted out of scope coverage."""
-    advertised = {s["function"]["name"] for s in tools.TOOL_SCHEMAS}
+def test_dispatch_and_schemas_cannot_drift():
+    """Both now derive from the registry, so this holds by construction rather than by
+    anyone remembering. Kept as a guard on that property itself: the earlier hand-written
+    lists are how ping_sweep/nuclei_scan drifted out of scope coverage."""
+    advertised = {s["function"]["name"] for s in tools.tool_schemas()}
     assert advertised == set(build_dispatch(ctx("10.0.0.5")))
 
 

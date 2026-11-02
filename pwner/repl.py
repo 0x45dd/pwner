@@ -151,7 +151,7 @@ class ReplSession:
             import os as _os
             reasoning_effort = (_os.environ.get("PWNER_REASONING_EFFORT") or "").strip() or None
             text = await self.client.run_turn(
-                self.messages, tools.TOOL_SCHEMAS, self.dispatch,
+                self.messages, tools.tool_schemas(), self.dispatch,
                 max_steps=self.max_steps, reasoning_effort=reasoning_effort, on_step=self._on_step,
                 on_call=self._on_call, on_thought=self._on_thought,
                 on_usage=self._on_usage, interrupt=interrupt, steer=steer)

@@ -302,7 +302,7 @@ async def run_agentic(ctx: ScanContext, cfg: tuple[str, str, str], max_steps: in
     reasoning_effort = (_os.environ.get("PWNER_REASONING_EFFORT") or "").strip() or None
     try:
         summary = await client.run_tools(
-            SYSTEM, tools.brief(ctx, instructions), tools.TOOL_SCHEMAS, dispatch,
+            SYSTEM, tools.brief(ctx, instructions), tools.tool_schemas(), dispatch,
             max_steps=max_steps, reasoning_effort=reasoning_effort, on_step=on_step, on_call=on_call,
             on_thought=on_thought, steer=steer)
     except (AIUnavailable, LLMError) as e:
