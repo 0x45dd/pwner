@@ -2,6 +2,16 @@
 
 Autonomous, **agentic** NETWORK penetration-testing tool for the terminal.
 
+<p align="center">
+  <img src="docs/session.gif" alt="pwner session: the operator sets a target, asks for a full scan, and the agent scans, fingerprints, reports findings and stops at a consent prompt" width="100%">
+</p>
+
+<p align="center">
+  <sub><b>Example session</b> against a fictional lab host — the agent's wording and the
+  counts are illustrative, not a recording of a live run. The right-hand panel is the live
+  network map the agent builds as it goes; <code>/topology</code> prints it in a session.</sub>
+</p>
+
 `pwner` is an LLM-driven agent that plans and executes a full network pentest — live-host
 discovery, port scanning, service/version fingerprinting, OS detection and known-CVE /
 misconfiguration detection, and, when the target warrants it and you approve, **active
@@ -30,7 +40,18 @@ enable, and the install command *for the system you are on*.
 git clone https://github.com/0x45dd/pwner.git && cd pwner
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
-pwner doctor              # what's installed, what's missing, how to get it
+
+./scripts/install-deps.sh   # installs the external tools for your platform
+pwner doctor                # confirm what's there and what isn't
+```
+
+`install-deps.sh` detects your package manager (brew / apt / pacman / dnf) and installs
+what is missing, skipping anything your distro does not package rather than failing. It
+never installs anything you already have.
+
+```bash
+./scripts/install-deps.sh --dry-run   # print the commands, run nothing
+./scripts/install-deps.sh --core      # nmap only — the single hard requirement
 ```
 
 <details>
@@ -441,6 +462,9 @@ pwner/
 │   ├── test_html_parse.py      # what the agent actually reads off a web page
 │   └── test_llm_json.py        # JSON recovery from fenced/prose model output
 ├── Dockerfile           # whole toolchain in one image (see Install → Docker)
+├── docs/               # the README's session GIF
+├── scripts/
+│   └── install-deps.sh # installs the external tools for the detected platform
 ├── .github/workflows/  # CI: ruff + pytest on Python 3.10–3.13
 └── README.md
 ```
