@@ -1,0 +1,15 @@
+__pycache__/
+*.egg-info/
+.venv/
+.git/
+.github/
+tests/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+pwner-session-*.txt
+*.restore
+.DS_Store
+Dockerfile
+.dockerignore

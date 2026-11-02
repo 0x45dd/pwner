@@ -88,7 +88,46 @@ def _parser() -> argparse.ArgumentParser:
     dns.add_argument("domain", help="domain to enumerate")
     dns.add_argument("--json", action="store_true")
 
+    doc = sub.add_parser("doctor", help="check which external tools are installed")
+    doc.add_argument("--json", action="store_true", help="machine-readable status")
+
     return p
+
+
+def _run_doctor(as_json: bool = False) -> int:
+    """Report which external binaries are present, what each one powers, and a paste-ready
+    install command for the missing ones. Exit 0 if everything core is present, else 1 —
+    so it is usable as a setup check in a script or a container build."""
+    from . import tools
+    st = tools.dependency_status()
+    if as_json:
+        print(json.dumps(st, indent=2))
+    else:
+        print("external tools pwner shells out to:\n")
+        for t in st:
+            mark = "✓" if t["installed"] else "✗"
+            tag = "  (core)" if t.get("core") else ""
+            print(f"  {mark} {t['name']}{tag}")
+            print(f"      powers: {t['enables']}")
+            if not t["installed"]:
+                print(f"      install: {t['install']}")
+        missing = [t for t in st if not t["installed"]]
+        core_missing = [t for t in missing if t.get("core")]
+        print()
+        if not missing:
+            print("all present — every tool is available.")
+        else:
+            print(f"{len(missing)} missing, {len(st) - len(missing)} present. "
+                  f"Each only matters when its tools are used.")
+            print("\ninstall the missing ones:\n")
+            for t in missing:
+                print(f"  {t['install']}")
+            if any(t["name"] == "nuclei" for t in missing):
+                print("\n  # then, one time, fetch the templates:\n  nuclei -update-templates")
+        if core_missing:
+            print("\nnmap is required and is missing — scanning will not work until it is "
+                  "installed.")
+    return 1 if any(t.get("core") for t in st if not t["installed"]) else 0
 
 
 def _print_findings(findings: list[dict]) -> None:
@@ -151,6 +190,8 @@ async def _run_chat(args: argparse.Namespace) -> int:
 
 
 async def _run(args: argparse.Namespace) -> int:
+    if args.command == "doctor":
+        return _run_doctor(getattr(args, "json", False))
     if args.command == "chat":
         return await _run_chat(args)
     target = getattr(args, "target", None) or getattr(args, "domain", None)
@@ -317,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if argv[0] in ("setup", "config", "reconfigure"):
         return _run_wizard()  # force the setup prompts again (change provider/key)
-    known = {"scan", "chat", "ports", "vuln", "dns", "--version", "-h", "--help"}
+    known = {"scan", "chat", "ports", "vuln", "dns", "doctor", "--version", "-h", "--help"}
     if argv[0] not in known and not argv[0].startswith("-"):
         argv = ["scan", *argv]  # `pwner <target>` == `pwner scan <target>`
     args = _parser().parse_args(argv)

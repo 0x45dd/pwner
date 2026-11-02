@@ -66,17 +66,38 @@ def test_every_tool_module_actually_registers_tools():
     assert sum(len(v) for v in by_module.values()) == 47
 
 
-def test_package_reexports_every_submodule_name():
-    """`from .tools import X` has to keep working for every name the submodules define —
-    this package replaced one flat module and the rest of the codebase imports from it."""
-    for module in SUBMODULES:
-        tree = ast.parse((PKG / f"{module}.py").read_text())
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names = [node.name]
-            elif isinstance(node, ast.Assign):
-                names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-            else:
-                continue
-            for n in names:
-                assert hasattr(tools, n), f"{module}.{n} is not re-exported from pwner.tools"
+def module_level_names(module: str) -> list[str]:
+    tree = ast.parse((PKG / f"{module}.py").read_text())
+    names = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.append(node.name)
+        elif isinstance(node, ast.Assign):
+            names += [t.id for t in node.targets if isinstance(t, ast.Name)]
+    return names
+
+
+@pytest.mark.parametrize("module", SUBMODULES)
+def test_package_reexports_every_public_name(module):
+    """`from .tools import X` has to keep working: this package replaced one flat module
+    and the rest of the codebase imports from it. Private helpers are a module's own
+    business — see the pinned list below for the few that are used from outside."""
+    for name in module_level_names(module):
+        if name.startswith("_"):
+            continue
+        assert hasattr(tools, name), f"{module}.{name} is not re-exported from pwner.tools"
+
+
+# Private names that code outside their defining module imports. Each is a deliberate
+# reach into internals (mostly by tests, which is where the safety rails are exercised),
+# so each has to stay re-exported even though the leading underscore says "mine".
+_PRIVATE_IN_USE = [
+    "_REGISTRY", "_consent", "_consent_granted", "_enforce_scope", "_env_note",
+    "_guard_nmap_args", "_hosts_in_value", "_literal_in_scope", "_parse_nmap_xml",
+    "_ports_arg_list", "_summarize",
+]
+
+
+@pytest.mark.parametrize("name", _PRIVATE_IN_USE)
+def test_private_names_used_elsewhere_stay_reexported(name):
+    assert hasattr(tools, name), f"pwner.tools no longer re-exports {name}"

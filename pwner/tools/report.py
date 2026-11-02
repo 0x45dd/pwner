@@ -174,28 +174,85 @@ async def ledger(ctx: ScanContext, args: dict) -> dict:
     return {"ledger": ctx.ledger}
 
 
+# Install hints per package manager. The point of keying these by platform is that a hint
+# is only useful if the reader can paste it: "brew install nmap" on a Debian box is noise.
+# `None` means the tool has no package in that ecosystem and needs the fallback route.
+# Each entry was checked against that ecosystem's own index, not assumed.
+_PACKAGES: dict[str, dict[str, str | None]] = {
+    "nmap":         {"brew": "nmap", "apt": "nmap", "pacman": "nmap", "dnf": "nmap"},
+    # nuclei: Homebrew and Fedora carry it; Debian does not, and Arch has it only in the AUR.
+    "nuclei":       {"brew": "nuclei", "apt": None, "pacman": None, "dnf": "nuclei"},
+    "hydra":        {"brew": "hydra", "apt": "hydra", "pacman": "hydra", "dnf": "hydra"},
+    # the binary is snmpwalk, but no distro names the package that.
+    "snmpwalk":     {"brew": "net-snmp", "apt": "snmp", "pacman": "net-snmp", "dnf": "net-snmp-utils"},
+    # exploitdb: Homebrew, Arch and Kali package it; plain Debian/Ubuntu and Fedora do not.
+    "searchsploit": {"brew": "exploitdb", "apt": None, "pacman": "exploitdb", "dnf": None},
+    "hashcat":      {"brew": "hashcat", "apt": "hashcat", "pacman": "hashcat", "dnf": "hashcat"},
+}
+_INSTALL_CMD = {"brew": "brew install", "apt": "sudo apt install",
+                "pacman": "sudo pacman -S", "dnf": "sudo dnf install"}
+
+# Tools from a language ecosystem rather than the OS package manager. netexec is NOT on
+# PyPI, so `pipx install netexec` fails — it has to come from the repository.
+_PIPX_PACKAGES = {
+    "impacket": "impacket",
+    "certipy": "certipy-ad",
+    "bloodhound-python": "bloodhound",
+    "netexec": "git+https://github.com/Pennyw0rth/NetExec",
+}
+
+
+def _package_manager() -> str | None:
+    """Which OS package manager this machine actually has, so hints are paste-ready."""
+    for mgr in ("brew", "apt", "pacman", "dnf"):
+        if shutil.which(mgr):
+            return mgr
+    return None
+
+
+def _hint(name: str, pm: str | None) -> str:
+    """How to install `name` here. When this machine has no package manager we recognise,
+    name the package per ecosystem rather than printing a command that cannot run."""
+    if name in _PIPX_PACKAGES:
+        return f"pipx install {_PIPX_PACKAGES[name]}"
+    if name == "kerbrute":
+        # Upstream ships linux_386 and linux_amd64 only — arm64 needs the Go route.
+        return "prebuilt binary from github.com/ropnop/kerbrute (arm64: go install)"
+    pkg = _PACKAGES.get(name, {}).get(pm) if pm else None
+    if pkg:
+        return f"{_INSTALL_CMD[pm]} {pkg}"
+    if name == "nuclei":
+        return "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
+    if name == "searchsploit":
+        return "clone gitlab.com/exploit-database/exploitdb and symlink searchsploit"
+    known = [f"{m}: {p}" for m, p in _PACKAGES.get(name, {}).items() if p]
+    return f"install the package for your system — {' · '.join(known)}" if known else \
+        f"see the {name} project page"
+
+
 def dependency_status() -> list[dict]:
     """Live install status of every EXTERNAL binary pwner can shell out to, with the
-    pwner tools each one powers and how to install it. nmap is core; the rest are optional
-    and only matter when the relevant tools are used."""
+    pwner tools each one powers and how to install it on THIS machine. nmap is core; the
+    rest are optional and only matter when the relevant tools are used."""
+    pm = _package_manager()
     checks = [
-        ("nmap", bool(shutil.which(NMAP_BIN)), "brew install nmap", True,
+        ("nmap", bool(shutil.which(NMAP_BIN)), _hint("nmap", pm), True,
          "port_scan/service_detect/vuln_scan/os_detect/ping_sweep/smb_enum/ssl_info/run_nmap"),
-        ("nuclei", has_nuclei(), "brew install nuclei", False, "nuclei_scan"),
-        ("hydra", has_hydra(), "brew install hydra", False, "hydra_brute"),
-        ("snmpwalk", bool(shutil.which(SNMPWALK_BIN)), "brew install net-snmp", False, "snmp_check"),
-        ("searchsploit", bool(shutil.which("searchsploit")), "brew install exploitdb", False,
+        ("nuclei", has_nuclei(), _hint("nuclei", pm), False, "nuclei_scan"),
+        ("hydra", has_hydra(), _hint("hydra", pm), False, "hydra_brute"),
+        ("snmpwalk", bool(shutil.which(SNMPWALK_BIN)), _hint("snmpwalk", pm), False, "snmp_check"),
+        ("searchsploit", bool(shutil.which("searchsploit")), _hint("searchsploit", pm), False,
          "exploit_search (ExploitDB)"),
-        ("impacket", bool(_impacket("GetNPUsers")), "pipx install impacket", False,
+        ("impacket", bool(_impacket("GetNPUsers")), _hint("impacket", pm), False,
          "asrep_roast/kerberoast/secretsdump/win_exec"),
-        ("netexec", bool(_netexec()), "pipx install netexec", False,
+        ("netexec", bool(_netexec()), _hint("netexec", pm), False,
          "ldap_enum/rid_brute/smb_shares/smb_get/password_spray/win_exec(winrm)/ssh_exec/dc_vuln_check"),
-        ("kerbrute", bool(shutil.which("kerbrute")),
-         "download from github.com/ropnop/kerbrute (prebuilt binary)", False, "kerbrute_userenum"),
-        ("certipy", bool(_which_any("certipy", "certipy-ad")), "pipx install certipy-ad", False, "adcs_find"),
-        ("bloodhound-python", bool(shutil.which("bloodhound-python")), "pipx install bloodhound", False,
-         "bloodhound_collect"),
-        ("hashcat", bool(_which_any("hashcat", "john")), "brew install hashcat", False, "hash_crack"),
+        ("kerbrute", bool(shutil.which("kerbrute")), _hint("kerbrute", pm), False,
+         "kerbrute_userenum"),
+        ("certipy", bool(_which_any("certipy", "certipy-ad")), _hint("certipy", pm), False, "adcs_find"),
+        ("bloodhound-python", bool(shutil.which("bloodhound-python")), _hint("bloodhound-python", pm),
+         False, "bloodhound_collect"),
+        ("hashcat", bool(_which_any("hashcat", "john")), _hint("hashcat", pm), False, "hash_crack"),
     ]
     return [{"name": n, "installed": ok, "install": ins, "core": core, "enables": en}
             for (n, ok, ins, core, en) in checks]

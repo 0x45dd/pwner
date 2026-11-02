@@ -21,21 +21,90 @@ reasoning.
 
 ## Install
 
-```bash
-cd pwner
-python3.12 -m venv .venv && source .venv/bin/activate
-pip install -e .           # installs the `pwner` command + deps (httpx, dnspython, rich, textual)
+Python **3.10+**, and **nmap is the only hard requirement** — everything else is optional
+and only matters when the tools that need it are used. Install pwner first, then run
+**`pwner doctor`**: it tells you exactly what is missing, what each missing tool would
+enable, and the install command *for the system you are on*.
 
-# nmap + nuclei are system binaries, not pip packages:
-brew install nmap nuclei   # macOS
-nuclei -update-templates   # one-time: download the template set (~14k templates)
+```bash
+git clone https://github.com/0x45dd/pwner.git && cd pwner
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+pwner doctor              # what's installed, what's missing, how to get it
 ```
 
-Python 3.10+. **nmap is the only hard requirement.** The rest are optional and only
-matter when the tools that need them are used: `nuclei`, `hydra`, `snmpwalk`,
-`searchsploit`, `impacket`, `netexec`, `kerbrute`, `certipy`, `bloodhound-python`,
-`hashcat`. Run **`/doctor`** inside a session (or `/deps`) to see what is installed,
-what is missing, which pwner tools each one powers, and the command to install it.
+<details>
+<summary><b>uv / pipx instead of venv</b></summary>
+
+```bash
+uv venv && uv pip install -e .          # uv
+pipx install -e .                        # pipx, if you only want the `pwner` command
+```
+</details>
+
+### The external tools
+
+`pwner doctor` prints this for your machine, with per-platform commands. The whole table
+except nmap is optional:
+
+| Tool | Enables | macOS | Debian/Ubuntu/Kali | Arch | Fedora |
+|---|---|---|---|---|---|
+| **nmap** *(required)* | all scanning | `brew install nmap` | `apt install nmap` | `pacman -S nmap` | `dnf install nmap` |
+| nuclei | `nuclei_scan` | `brew install nuclei` | [binary](https://github.com/projectdiscovery/nuclei/releases) or `go install` | AUR (`nuclei-bin`) | `dnf install nuclei` |
+| hydra | `hydra_brute` | `brew install hydra` | `apt install hydra` | `pacman -S hydra` | `dnf install hydra` |
+| snmpwalk | `snmp_check` | `brew install net-snmp` | `apt install snmp` | `pacman -S net-snmp` | `dnf install net-snmp-utils` |
+| hashcat | `hash_crack` | `brew install hashcat` | `apt install hashcat` | `pacman -S hashcat` | `dnf install hashcat` |
+| searchsploit | `exploit_search` | `brew install exploitdb` | `apt install exploitdb` *(Kali only)* | `pacman -S exploitdb` | [clone it](https://gitlab.com/exploit-database/exploitdb) |
+| impacket | AD roasting, `secretsdump`, `win_exec` | `pipx install impacket` | ← same | ← same | ← same |
+| netexec | SMB/LDAP enum, spraying, WinRM/SSH exec | `pipx install git+https://github.com/Pennyw0rth/NetExec` | ← same | ← same | ← same |
+| certipy | `adcs_find` | `pipx install certipy-ad` | ← same | ← same | ← same |
+| bloodhound-python | `bloodhound_collect` | `pipx install bloodhound` | ← same | ← same | ← same |
+| kerbrute | `kerbrute_userenum` | [prebuilt binary](https://github.com/ropnop/kerbrute/releases) | ← same | ← same | ← same |
+
+After installing nuclei, fetch its templates once: `nuclei -update-templates` (~14k files).
+
+**Gotchas worth knowing up front:**
+
+- **netexec is not on PyPI.** `pipx install netexec` fails; install it from the repo as
+  shown above.
+- **searchsploit is packaged by Homebrew, Arch and Kali — but not by Debian/Ubuntu or
+  Fedora.** There, clone [exploitdb](https://gitlab.com/exploit-database/exploitdb) and
+  symlink `searchsploit` onto your `PATH`. Same story for **nuclei**, which Homebrew and
+  Fedora carry but Debian and the official Arch repos do not.
+- **kerbrute has no arm64 build** — only `linux_386` and `linux_amd64`. On Apple Silicon
+  or arm64 Linux, build it with `go install github.com/ropnop/kerbrute@latest`.
+- **macOS + pipx:** Homebrew Python 3.12/3.13 can report an empty `platform.mac_ver()`,
+  which `uv` rejects with "Broken Python installation" and breaks `pipx install`. Pin an
+  interpreter that works: `pipx install --python "$(brew --prefix python@3.11)/bin/python3.11" impacket`.
+- **Run as root for real host discovery.** Unprivileged, nmap cannot send ICMP/ARP or SYN
+  probes, so `ping_sweep` falls back to TCP-connect probes and misses hosts, and
+  `os_detect` does not work at all. Use `sudo pwner` on a LAN sweep.
+
+### Docker
+
+The least-setup route: one image with the whole toolchain, nothing installed on your host.
+
+```bash
+docker build -t pwner .
+docker run --rm -it --net=host --cap-add=NET_RAW --cap-add=NET_ADMIN \
+  -v pwner-config:/root/.config/pwner \
+  -v pwner-sessions:/root/.local/share/pwner \
+  pwner
+```
+
+- `--net=host` and `NET_RAW`/`NET_ADMIN` are what let nmap do SYN scans and ICMP/ARP
+  discovery. Without them nmap silently degrades to slower connect scans and finds fewer
+  hosts — the container will *work*, just worse.
+- The two volumes persist your saved API key and your `/dump` transcripts. Without them
+  both vanish when the container exits.
+- `searchsploit` is left out by default because it needs the full exploit corpus (~1 GB)
+  for one optional tool; `exploit_search` falls back to the local nuclei template index.
+  Add it with `docker build --build-arg WITH_EXPLOITDB=1 -t pwner .`.
+- On arm64, kerbrute is skipped (no upstream build) — `pwner doctor` will say so.
+
+> The Dockerfile is provided as-is and **has not been built and run end-to-end yet**; the
+> package names and release assets in it were checked against the Debian archive and the
+> upstream release APIs, but treat the first build as untested.
 
 ## First run — just type `pwner`
 
@@ -122,7 +191,15 @@ pwner dns example.com
 pwner 10.0.0.0/24 --no-ai --nuclei-severity high,critical
 pwner ports 10.0.0.5
 pwner vuln 10.0.0.5 --ports 22,443
+
+# Setup / environment
+pwner setup                 # change provider or API key
+pwner doctor                # external tools: installed, missing, how to install
+pwner doctor --json         # same, machine-readable
 ```
+
+`pwner doctor` exits non-zero only when a **core** dependency (nmap) is missing, so it
+works as a setup check in a script or a container build.
 
 ### Common flags
 
@@ -360,7 +437,9 @@ pwner/
 │   ├── test_nmap_parse.py      # nmap XML parsing against real -oX fixtures
 │   ├── test_safety_rails.py    # NSE blocklist + target-spec resolution
 │   ├── test_transcript.py      # /dump location + file permissions
+│   ├── test_dependencies.py    # external-tool status + per-platform install hints
 │   └── test_llm_json.py        # JSON recovery from fenced/prose model output
+├── Dockerfile           # whole toolchain in one image (see Install → Docker)
 ├── .github/workflows/  # CI: ruff + pytest on Python 3.10–3.13
 └── README.md
 ```
@@ -369,7 +448,7 @@ pwner/
 
 ```bash
 pip install -e ".[dev]"    # adds pytest + ruff
-pytest                     # 296 tests, ~0.3s
+pytest                     # 397 tests, ~0.2s
 ruff check .
 ```
 
