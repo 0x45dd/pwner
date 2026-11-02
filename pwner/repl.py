@@ -326,7 +326,15 @@ class ReplSession:
                              "Authorized targets only.[/yellow]")
             elif a in ("off", "no", "false"):
                 self.ctx.auto_consent = False
-                self.tui.log("[cyan]auto-consent OFF — high-impact actions will prompt [y/N].[/cyan]")
+                # Also drop remembered approvals: _consent() treats ANY earlier "approved"
+                # as blanket consent for the rest of the session, so without this the
+                # "will prompt" message below would be false whenever one was granted.
+                retracted = sum(1 for r in self.ctx.consent_requests
+                                if r.get("decision") == "approved")
+                self.ctx.consent_requests.clear()
+                extra = f" ({retracted} earlier approval(s) retracted)" if retracted else ""
+                self.tui.log(f"[cyan]auto-consent OFF — high-impact actions will prompt "
+                             f"[y/N].{extra}[/cyan]")
             else:
                 state = "ON" if self.ctx.auto_consent else "OFF"
                 self.tui.log(f"auto-consent: [bold]{state}[/bold]  (use `/consent on|off`)")

@@ -7,6 +7,7 @@ offline — hostname cases monkeypatch _resolve_ips so no DNS query is made.
 from __future__ import annotations
 
 import asyncio
+import inspect
 
 import pytest
 
@@ -211,7 +212,7 @@ def test_hydra_brute_is_scope_checked_before_the_consent_gate():
 def test_every_dispatched_tool_is_wrapped():
     d = build_dispatch(ctx("10.0.0.5"))
     assert d, "dispatch is empty"
-    assert all(asyncio.iscoroutinefunction(fn) for fn in d.values())
+    assert all(inspect.iscoroutinefunction(fn) for fn in d.values())
     assert all(fn.__name__ == f"guarded_{name}" for name, fn in d.items())
 
 

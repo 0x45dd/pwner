@@ -31,7 +31,11 @@ brew install nmap nuclei   # macOS
 nuclei -update-templates   # one-time: download the template set (~14k templates)
 ```
 
-Python 3.10+.
+Python 3.10+. **nmap is the only hard requirement.** The rest are optional and only
+matter when the tools that need them are used: `nuclei`, `hydra`, `snmpwalk`,
+`searchsploit`, `impacket`, `netexec`, `kerbrute`, `certipy`, `bloodhound-python`,
+`hashcat`. Run **`/doctor`** inside a session (or `/deps`) to see what is installed,
+what is missing, which pwner tools each one powers, and the command to install it.
 
 ## First run — just type `pwner`
 
@@ -90,6 +94,8 @@ Leave the API key blank to run in deterministic mode — the chat agent needs a 
 | `/consent on\|off` | toggle auto-approve for high-impact actions (authorized only) |
 | `/stop` | cancel the agent turn currently running (`Ctrl-C` also works) |
 | `/clear` | reset the conversation (keeps target + findings) |
+| `/dump [path]` | save the full session transcript to a file |
+| `/doctor` | which external tools are installed / missing, and how to install them |
 | *(type while it runs)* | plain text → live steering injected into the agent's next step |
 | `/help` · `/exit` | help · leave (`Ctrl-Q` also quits; `Ctrl-C` stops the turn, then quits) |
 
@@ -126,7 +132,7 @@ pwner vuln 10.0.0.5 --ports 22,443
 | `--model` / `--base-url` / `--api-key` | override provider settings |
 | `--ports top-1000\|top-100\|common\|all\|"22,80,443"\|"1-1024"` | port selection |
 | `--no-ai` | skip the LLM, run the deterministic suite |
-| `--max-steps N` | cap on agent tool-calling turns (default 40) |
+| `--max-steps N` | cap on agent tool-calling turns (`0` = uncapped, the default) |
 | `--concurrency N` | parallel host scans for a range (default 20) |
 | `--range-cap N` | max addresses in a CIDR before refusing (default 4096) |
 | `--nuclei-severity` | nuclei severity filter (default `low,medium,high,critical`) |
@@ -149,7 +155,7 @@ Provider presets set the base URL and default model:
 | `--provider` | base URL | default model |
 |---|---|---|
 | `openai` | `https://api.openai.com/v1` | `gpt-4o-mini` |
-| `deepseek` | `https://api.deepseek.com` | `deepseek-chat` |
+| `deepseek` | `https://api.deepseek.com` | `deepseek-v4-pro` |
 | `anthropic` | `https://api.anthropic.com/v1` | `claude-sonnet-4-5` |
 | `gemini` | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-flash-latest` |
 | `ollama` | `http://localhost:11434/v1` | `llama3.1` |
@@ -186,8 +192,13 @@ pwner <target>
 
 Safety rails (enforced at the tool layer, regardless of what the model asks):
 
-- **Scope lock** — every host-targeting tool refuses any host outside the target
-  (single host or CIDR), enforced in code, not by the prompt.
+- **Scope lock** — enforced centrally: every tool is wrapped so each host-carrying
+  argument (`target`, `host`, `dc_ip`, …) is checked against the authorized target
+  before the tool body runs. Tools are in-scope-by-default, so one that forgets its own
+  check is still guarded. URLs, `host:port`, CIDRs and target lists are all unwrapped
+  first, and a network-valued argument must sit entirely inside the authorization — a
+  `/24` scope cannot be widened to a `/16` by a tool argument. Enforced in code, not by
+  the prompt: the model cannot talk its way past it.
 - **Consent-gated by default** — anything active (brute-force, password spraying, remote
   command execution via `win_exec`/`ssh_exec`, `secretsdump`, reverse shells via
   `listener`/`shell_exec`, and the `exfil` channel) is denied unless you approve it
@@ -198,7 +209,8 @@ Safety rails (enforced at the tool layer, regardless of what the model asks):
   read-only discovery → fingerprint → detect pipeline; the active tools need the agent
   *and* your consent.
 - **Guarded raw nmap** — the generic `run_nmap` escape hatch still blocks the intrusive
-  NSE categories (`brute`, `dos`, `exploit`) no matter what the model asks.
+  NSE categories (`brute`, `dos`, `exploit`, `intrusive`, `broadcast`, `external`) no
+  matter what the model asks.
 
 ### A real pentester's brain, not a checklist
 
@@ -277,8 +289,16 @@ context the TUI is disabled and output falls back to plain text.
 
 Consent resolution order:
 - `--auto-consent` → auto-approve (no prompt) — authorized targets only.
+- an **earlier approval in this session** → auto-approve, see the caveat below.
 - `-i` / TTY (default when interactive) → prompt `[y/N]`.
 - non-TTY (piped/scripted) → auto-deny (safe default).
+
+> ⚠️ **Approval is session-wide, not per action.** The first `y` you give approves *every*
+> subsequent high-impact action for the rest of the session — approve an FTP brute-force and
+> `secretsdump`, `win_exec`, `listener`/`shell_exec` and `exfil` will not ask again. This is
+> deliberate (it avoids prompt fatigue mid-engagement) but it is blunt: treat the first `y`
+> as consenting to the whole active toolset on that target, not to the one action in front of
+> you. **`/consent off` retracts it** and makes the next high-impact action prompt again.
 
 `--instructions` injects operator steering into the agent's brief so you can aim it before
 it runs. The agent is **target-driven, not a checklist** — it fingerprints the exact
@@ -289,7 +309,8 @@ lookups for that version → default creds → brute-force only if warranted and
 
 ```
 pwner/
-├── pyproject.toml      # pip install -e .
+├── pyproject.toml      # pip install -e ".[dev]"  · ruff + pytest config
+├── LICENSE             # AGPL-3.0-or-later
 ├── pwner/
 │   ├── llm.py          # OpenAI-compatible client + agentic run_tools loop
 │   ├── tools.py        # nmap wrapper + DNS/banner/HTTP tools + scope/safety guard
@@ -297,6 +318,43 @@ pwner/
 │   ├── agent.py        # agentic orchestration + deterministic fallback
 │   ├── repl.py         # interactive session logic (turns, commands) + plain fallback
 │   ├── app.py          # full-screen Textual TUI (fixed input, scrolling log, status)
-│   └── cli.py          # terminal interface
+│   ├── tui.py          # inline renderer: log + live topology panel + status line
+│   ├── config.py       # persisted provider/key (~/.config/pwner/config.json, 0600)
+│   ├── cli.py          # terminal interface
+│   └── __main__.py     # python -m pwner
+├── tests/              # offline suite — no nmap, no sockets, no API calls
+│   ├── test_scope.py           # the authorization boundary
+│   ├── test_consent.py         # the consent gate: granting, remembering, retracting
+│   ├── test_nmap_parse.py      # nmap XML parsing against real -oX fixtures
+│   ├── test_safety_rails.py    # NSE blocklist + target-spec resolution
+│   └── test_llm_json.py        # JSON recovery from fenced/prose model output
+├── .github/workflows/  # CI: ruff + pytest on Python 3.10–3.13
 └── README.md
 ```
+
+## Development
+
+```bash
+pip install -e ".[dev]"    # adds pytest + ruff
+pytest                     # 163 tests, ~0.1s
+ruff check .
+```
+
+The test suite is **offline by design** — it starts no nmap process, opens no sockets and
+makes no API calls, so it runs anywhere in well under a second. Hostname-resolution paths
+are monkeypatched rather than hitting DNS. A test that genuinely needs the network belongs
+behind an explicit marker, not in the default run.
+
+The parts worth keeping covered are `tests/test_scope.py` and `tests/test_consent.py` —
+together they are the safety model. Scope decides *where* pwner may act, consent decides
+*whether* it may do the destructive things there; everything else is replaceable.
+`test_scope.py` also asserts that `TOOL_SCHEMAS` and `build_dispatch` stay in sync — those
+two lists are maintained by hand, and a tool present in one but missing from the other is
+exactly how three tools once drifted out of scope coverage.
+
+## License
+
+[GNU AGPL-3.0-or-later](LICENSE). Copyright (C) 2026 Berk D.
+
+The network clause (§13) matters for a tool like this: if you modify pwner and let others
+use it over a network, you have to offer them the modified source too.
