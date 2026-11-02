@@ -37,7 +37,7 @@ _COMMANDS: dict[str, str] = {
     "/consent": "toggle auto-approve for high-impact actions (on|off)",
     "/stop": "cancel the currently running agent turn",
     "/clear": "reset the conversation (keeps target + findings)",
-    "/dump": "save the full session transcript to a file ([path])",
+    "/dump": "save the full session transcript (default: ~/.local/share/pwner/sessions)",
     "/doctor": "show which external tools are installed / missing + how to install",
     "/help": "show help",
     "/exit": "leave the session",
@@ -54,7 +54,7 @@ HELP = r"""[bold]pwner[/bold] — talk to the agent, or use a /command:
   [cyan]/consent on|off[/cyan]      toggle auto-approve for high-impact actions (authorized only)
   [cyan]/stop[/cyan]                cancel the agent turn that's currently running (Ctrl-C too)
   [cyan]/clear[/cyan]               reset the conversation (keeps target + findings)
-  [cyan]/dump \[path][/cyan]         save the full session transcript to a file (default: ./pwner-session-<ts>.txt)
+  [cyan]/dump \[path][/cyan]         save the transcript (default: ~/.local/share/pwner/sessions, 0600)
   [cyan]/doctor[/cyan]              show which external tools are installed / missing + install commands
   [cyan]/help[/cyan]                show this help
   [cyan]/exit[/cyan] · [cyan]/quit[/cyan]         leave the session
@@ -262,24 +262,35 @@ class ReplSession:
 
     def _dump_transcript(self, arg: str = "") -> str:
         """Write the full session transcript (everything shown so far) to a text file.
-        `arg` is an optional path; defaults to ./pwner-session-<timestamp>.txt. Returns the
-        absolute path written."""
+
+        `arg` is an optional path or directory. With no argument the file goes to
+        ~/.local/share/pwner/sessions/, NOT the working directory: the transcript records
+        whatever the engagement turned up — credentials, session cookies, hashes — and
+        dropping that into whatever repo you are standing in is how it reaches a commit.
+        Written owner-only either way. Returns the absolute path written."""
         import datetime
         import os
+
+        from . import config as pwner_config
+        name = f"pwner-session-{datetime.datetime.now():%Y%m%d-%H%M%S}.txt"
         if arg.strip():
             path = os.path.expanduser(arg.strip())
             if os.path.isdir(path):
-                path = os.path.join(path, f"pwner-session-{datetime.datetime.now():%Y%m%d-%H%M%S}.txt")
+                path = os.path.join(path, name)
         else:
-            path = os.path.join(os.getcwd(), f"pwner-session-{datetime.datetime.now():%Y%m%d-%H%M%S}.txt")
+            path = os.path.join(pwner_config.sessions_dir(), name)
         header = (
             f"# pwner session transcript\n"
             f"# saved: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n"
             f"# target: {self.ctx.target or '(none)'} · model: {self.model} · "
             f"findings: {len(self.ctx.findings)}\n"
+            f"#\n"
+            f"# UNREDACTED. This records the whole session, so any credential, session\n"
+            f"# cookie or hash the engagement turned up is in here in cleartext. The file\n"
+            f"# is owner-only (0600); keep it that way, and do not commit it.\n"
             f"{'=' * 70}\n\n")
         body = "\n".join(self.tui.transcript)
-        with open(path, "w", encoding="utf-8") as f:
+        with os.fdopen(pwner_config.open_private(path), "w", encoding="utf-8") as f:
             f.write(header + body + "\n")
         return os.path.abspath(path)
 

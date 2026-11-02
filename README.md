@@ -94,7 +94,7 @@ Leave the API key blank to run in deterministic mode — the chat agent needs a 
 | `/consent on\|off` | toggle auto-approve for high-impact actions (authorized only) |
 | `/stop` | cancel the agent turn currently running (`Ctrl-C` also works) |
 | `/clear` | reset the conversation (keeps target + findings) |
-| `/dump [path]` | save the full session transcript to a file |
+| `/dump [path]` | save the full session transcript (see [Transcripts](#transcripts)) |
 | `/doctor` | which external tools are installed / missing, and how to install them |
 | *(type while it runs)* | plain text → live steering injected into the agent's next step |
 | `/help` · `/exit` | help · leave (`Ctrl-Q` also quits; `Ctrl-C` stops the turn, then quits) |
@@ -300,6 +300,27 @@ Consent resolution order:
 > as consenting to the whole active toolset on that target, not to the one action in front of
 > you. **`/consent off` retracts it** and makes the next high-impact action prompt again.
 
+## Transcripts
+
+`/dump` writes everything shown in the session to a text file. With no argument it goes to
+**`~/.local/share/pwner/sessions/`** (or `$XDG_DATA_HOME/pwner/sessions/`), **not** the
+working directory — a transcript records whatever the engagement turned up, so dropping it
+into whichever repo you happen to be standing in is how it ends up in a commit. Pass a path
+or a directory to put it somewhere specific.
+
+The file is written **owner-only (0600)**, and so is its directory, wherever it lands. It is
+**not redacted**, by design: on an authorized engagement those credentials are the
+deliverable, and a redactor that catches most secrets is worse than none — it invites you to
+treat the file as safe to share. The header says as much, in the file. Treat it like the
+credential store it is.
+
+Where pwner keeps things:
+
+| Path | Contents | Mode |
+|---|---|---|
+| `~/.config/pwner/config.json` | saved provider + API key | `0600` |
+| `~/.local/share/pwner/sessions/` | session transcripts from `/dump` | `0700` dir, `0600` files |
+
 `--instructions` injects operator steering into the agent's brief so you can aim it before
 it runs. The agent is **target-driven, not a checklist** — it fingerprints the exact
 service + version, then picks the cheapest highest-value probe (anonymous check → known-CVE
@@ -327,7 +348,7 @@ pwner/
 │   ├── repl.py         # interactive session logic (turns, commands) + plain fallback
 │   ├── app.py          # full-screen Textual TUI (fixed input, scrolling log, status)
 │   ├── tui.py          # inline renderer: log + live topology panel + status line
-│   ├── config.py       # persisted provider/key (~/.config/pwner/config.json, 0600)
+│   ├── config.py       # on-disk paths: config + transcripts, both owner-only
 │   ├── cli.py          # terminal interface
 │   └── __main__.py     # python -m pwner
 ├── tests/              # offline suite — no nmap, no sockets, no API calls
@@ -338,6 +359,7 @@ pwner/
 │   ├── test_package_layout.py  # the dependency star + every submodule stays imported
 │   ├── test_nmap_parse.py      # nmap XML parsing against real -oX fixtures
 │   ├── test_safety_rails.py    # NSE blocklist + target-spec resolution
+│   ├── test_transcript.py      # /dump location + file permissions
 │   └── test_llm_json.py        # JSON recovery from fenced/prose model output
 ├── .github/workflows/  # CI: ruff + pytest on Python 3.10–3.13
 └── README.md
@@ -347,7 +369,7 @@ pwner/
 
 ```bash
 pip install -e ".[dev]"    # adds pytest + ruff
-pytest                     # 283 tests, ~0.2s
+pytest                     # 296 tests, ~0.3s
 ruff check .
 ```
 
