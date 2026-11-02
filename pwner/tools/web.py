@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import re
 import socket
+from html import unescape
 
 from .core import (
     ScanContext,
@@ -107,11 +108,15 @@ def _parse_html(text: str) -> dict:
     title = ""
     m = re.search(r"<title[^>]*>(.*?)</title>", body, re.I | re.S)
     if m:
-        title = re.sub(r"\s+", " ", m.group(1)).strip()[:200]
+        title = unescape(re.sub(r"\s+", " ", m.group(1)).strip())[:200]
+    # Entities are decoded, not passed through. It matters most for links: a query string
+    # written href="/x?a=1&amp;y=2" has to come back as /x?a=1&y=2, or the agent requests
+    # a URL with a literal "&amp;" in it. Text and comments just read better decoded.
     links = re.findall(r'(?:href|src|action)\s*=\s*["\']([^"\']+)["\']', body, re.I)
     links = list(dict.fromkeys(
-        a.strip() for a in links if a.strip() and not a.lower().startswith(("data:", "javascript:", "#"))))
-    comments = [c.strip()[:200] for c in re.findall(r"<!--(.*?)-->", body, re.S) if c.strip()]
+        unescape(a.strip()) for a in links
+        if a.strip() and not a.lower().startswith(("data:", "javascript:", "#"))))
+    comments = [unescape(c.strip())[:200] for c in re.findall(r"<!--(.*?)-->", body, re.S) if c.strip()]
     forms = []
     for fm in re.findall(r"<form\b(.*?)</form>", body, re.I | re.S):
         a = re.search(r'action\s*=\s*["\']([^"\']*)["\']', fm, re.I)
@@ -122,7 +127,9 @@ def _parse_html(text: str) -> dict:
     txt = re.sub(r"<script\b.*?</script>", " ", body, flags=re.I | re.S)
     txt = re.sub(r"<style\b.*?</style>", " ", txt, flags=re.I | re.S)
     txt = re.sub(r"<[^>]+>", " ", txt)
-    txt = re.sub(r"\s+", " ", txt).strip()
+    # Unescape after stripping tags, so an escaped "&lt;script&gt;" in the page body
+    # cannot turn into a tag that the stripper above has already run past.
+    txt = re.sub(r"\s+", " ", unescape(txt)).strip()
     return {"title": title, "links": links, "forms": forms, "comments": comments, "text": txt}
 
 

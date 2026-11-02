@@ -2,6 +2,15 @@
 
 Autonomous, **agentic** NETWORK penetration-testing tool for the terminal.
 
+![pwner session](demo/session.gif)
+
+*A real session, unedited: the agent is told "the web service on 8080 is the target — get
+authenticated access", reads the login page, notices the hint that the password is the
+device serial, pulls the serial from an unauthenticated `/api/status`, logs in, and reports
+what it found. The target is [`demo/target.py`](demo/target.py) — a deliberately weak
+service that binds `127.0.0.1` and nothing else. Re-render it with
+[`demo/session.tape`](demo/session.tape).*
+
 `pwner` is an LLM-driven agent that plans and executes a full network pentest — live-host
 discovery, port scanning, service/version fingerprinting, OS detection and known-CVE /
 misconfiguration detection, and, when the target warrants it and you approve, **active
@@ -438,8 +447,10 @@ pwner/
 │   ├── test_safety_rails.py    # NSE blocklist + target-spec resolution
 │   ├── test_transcript.py      # /dump location + file permissions
 │   ├── test_dependencies.py    # external-tool status + per-platform install hints
+│   ├── test_html_parse.py      # what the agent actually reads off a web page
 │   └── test_llm_json.py        # JSON recovery from fenced/prose model output
 ├── Dockerfile           # whole toolchain in one image (see Install → Docker)
+├── demo/               # the README's demo: VHS tape + the loopback-only target it scans
 ├── .github/workflows/  # CI: ruff + pytest on Python 3.10–3.13
 └── README.md
 ```
@@ -448,7 +459,7 @@ pwner/
 
 ```bash
 pip install -e ".[dev]"    # adds pytest + ruff
-pytest                     # 397 tests, ~0.2s
+pytest                     # 410 tests, ~0.2s
 ruff check .
 ```
 
