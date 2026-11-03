@@ -1,7 +1,27 @@
-<h1 align="center">pwner</h1>
+<p align="center">
+  <img src="docs/logo.svg" width="250" alt="pwner">
+</p>
 
 <p align="center">
   An agentic network pentest tool you talk to.
+</p>
+
+<p align="center">
+  <a href="https://github.com/0x45dd/pwner/actions/workflows/ci.yml"><img
+    src="https://github.com/0x45dd/pwner/actions/workflows/ci.yml/badge.svg?branch=main"
+    alt="CI status"></a>
+  <a href="LICENSE"><img
+    src="https://img.shields.io/github/license/0x45dd/pwner?color=4c4a42&label=license"
+    alt="License: AGPL-3.0-or-later"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-4c4a42" alt="Python 3.10+">
+</p>
+
+<p align="center">
+  <a href="#safety-model">Safety model</a> &nbsp;·&nbsp;
+  <a href="#install">Install</a> &nbsp;·&nbsp;
+  <a href="#first-run">First run</a> &nbsp;·&nbsp;
+  <a href="#your-model">Your model</a> &nbsp;·&nbsp;
+  <a href="#documentation">Documentation</a>
 </p>
 
 <p align="center">
@@ -40,6 +60,23 @@ It runs on your own model, or on no model at all.
 
 Two mechanisms, both in the tool layer, both outside the model's reach. The model can ask
 for anything; it cannot widen its own authorization.
+
+```mermaid
+flowchart LR
+    OP(["operator"]) -->|"plain language"| AG["agent loop"]
+    AG -->|"tool call"| SG{"scope guard"}
+    SG -->|"host outside<br>the target"| R1["refused"]
+    SG -->|"in scope"| CG{"consent gate"}
+    CG -->|"intrusive,<br>not approved"| R2["skipped"]
+    CG -->|"approved, or<br>not intrusive"| RUN["runs against<br>the target"]
+    classDef guard fill:#ffb000,stroke:#8a5f00,color:#140d00,stroke-width:2px
+    classDef stop fill:none,stroke:#8b949e,stroke-dasharray:4 4
+    class SG,CG guard
+    class R1,R2 stop
+```
+
+A refusal is not an error that stops the run: it goes back to the model as a tool result,
+so the agent learns it overstepped and carries on inside the boundary.
 
 **Scope lock.** [`build_dispatch`](pwner/tools/core.py) wraps every tool so each
 host-carrying argument is checked against your target *before* the tool body runs. Tools are
