@@ -49,8 +49,9 @@ It runs on your own model, or on no model at all.
   before it runs — not asked of the model in a prompt. See [Safety model](#safety-model).
 - **Intrusive actions are denied by default.** Brute-force, remote command execution,
   credential dumping and reverse shells need your explicit approval.
-- **Your model, your machine.** OpenAI, Anthropic, Google, DeepSeek, Ollama, or any
-  OpenAI-compatible endpoint. Nothing is sent anywhere until you configure one.
+- **Your model, your machine.** OpenAI, Anthropic, Google, DeepSeek, or a server on your
+  own hardware — Ollama, Lemonade, llama.cpp, anything OpenAI-compatible. A local
+  endpoint needs no API key. Nothing is sent anywhere until you configure one.
 - **Works with no model.** `--no-ai` runs the full discovery → fingerprint → detect pipeline
   deterministically, with no API key and nothing leaving the machine.
 - **47 tools** across nmap, HTTP, per-service probes, Active Directory and credential work,
@@ -202,8 +203,8 @@ engagement turned up, in cleartext).
 
 ## Your model
 
-Point it at a provider and give it a key. Presets cover OpenAI, Anthropic, Google, DeepSeek
-and Ollama; anything else that speaks the OpenAI API works via `--base-url`.
+Point it at a provider and give it a key. Presets cover OpenAI, Anthropic, Google and
+DeepSeek; anything else that speaks the OpenAI API works via `--base-url`.
 
 ```bash
 export PWNER_API_KEY=...
@@ -213,6 +214,26 @@ pwner chat 10.0.0.5 --provider anthropic
 The model has to support tool calling. `pwner chat --help` lists the presets and every
 override; each preset's default model is in [`pwner/llm.py`](pwner/llm.py). Model names move
 too fast to be worth pinning in a README.
+
+### On your own hardware
+
+`ollama` and `lemonade` are presets too, and a local endpoint needs **no API key** — if
+one is given it is still sent, since Lemonade does separate inference from admin keys.
+
+```bash
+pwner chat 10.0.0.5 --provider ollama
+pwner chat 10.0.0.5 --provider lemonade
+```
+
+Local servers are named after whatever that machine has pulled, so there is no sensible
+default model. When none is set, pwner asks the server's `/models` endpoint and uses what
+it finds; `pwner setup` lists them and lets you pick one to save. Any other OpenAI-compatible
+server — llama.cpp, LM Studio, vLLM — works the same way with `--base-url`, and is treated
+as keyless whenever the URL points at loopback or a private network.
+
+```bash
+pwner chat 10.0.0.5 --base-url http://192.168.1.50:13305/api/v1 --model Qwen3-Coder-30B
+```
 
 ## Running without a model
 

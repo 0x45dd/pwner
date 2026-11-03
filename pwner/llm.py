@@ -1,18 +1,21 @@
 """OpenAI-compatible LLM client for pwner.
 
 Exposes chat(), chat_json() and an agentic run_tools() function-calling loop.
-Provider presets cover OpenAI / DeepSeek / Anthropic (OpenAI-compat) / Gemini /
-Ollama. When no API key is configured, callers fall back to deterministic logic
-(see agent.py) — so pwner still works without a key.
+Provider presets cover OpenAI / DeepSeek / Anthropic (OpenAI-compat) / Gemini, and
+two that run on your own hardware, Ollama and Lemonade. A local server usually has no
+API key, so one is required only for a remote endpoint. When no model can be reached
+at all, callers fall back to deterministic logic (see agent.py).
 """
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import random
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -33,7 +36,36 @@ PRESETS: dict[str, dict[str, str]] = {
     "gemini":    {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
                   "model": "gemini-flash-latest"},
     "ollama":    {"base_url": "http://localhost:11434/v1",  "model": "llama3.1"},
+    # Lemonade Server (AMD) fronts one llama.cpp process per model and speaks the
+    # OpenAI API on /api/v1. Model names are whatever that install has pulled, so the
+    # preset leaves it blank and the model is discovered from /models instead of
+    # guessing a name that will not exist. Port is per-install: override --base-url.
+    "lemonade":  {"base_url": "http://localhost:13305/api/v1", "model": ""},
 }
+
+# Providers that normally run on your own hardware with no auth at all.
+LOCAL_PROVIDERS = frozenset({"ollama", "lemonade"})
+
+
+def is_local_endpoint(base_url: str) -> bool:
+    """True when the endpoint is on this machine or this network.
+
+    Those servers — Ollama, Lemonade, llama.cpp, LM Studio, vLLM — usually have no API
+    key, so requiring one would make a working setup look broken. Judged from the URL
+    rather than the provider name, so a custom --base-url gets the same treatment."""
+    try:
+        host = (urlparse(base_url).hostname or "").strip("[]")
+    except ValueError:
+        return False
+    if not host:
+        return False
+    if host == "localhost" or host.endswith((".local", ".internal", ".lan")):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_loopback or ip.is_private or ip.is_link_local
 
 
 def resolve_config(provider: str, api_key: str, base_url: str, model: str) -> tuple[str, str, str]:
@@ -43,8 +75,10 @@ def resolve_config(provider: str, api_key: str, base_url: str, model: str) -> tu
     saved = _cfg.load()
     provider = (provider or "").strip().lower() or str(saved.get("provider", "")).strip().lower() or "openai"
     preset = PRESETS.get(provider, {"base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini"})
-    base = (base_url or os.environ.get("PWNER_BASE_URL") or preset["base_url"]).rstrip("/")
-    mod = model or os.environ.get("PWNER_MODEL") or preset["model"]
+    base = (base_url or os.environ.get("PWNER_BASE_URL")
+            or str(saved.get("base_url", "")) or preset["base_url"]).rstrip("/")
+    mod = (model or os.environ.get("PWNER_MODEL")
+           or str(saved.get("model", "")) or preset["model"])
     key = (api_key
            or os.environ.get("PWNER_API_KEY")
            or os.environ.get("OPENAI_API_KEY")
@@ -53,6 +87,30 @@ def resolve_config(provider: str, api_key: str, base_url: str, model: str) -> tu
            or saved.get("api_key", "")
            or "").strip()
     return key, base, mod
+
+
+async def discover_models(base_url: str, api_key: str = "", timeout: float = 6.0) -> list[str]:
+    """Model ids the server actually has, from the OpenAI-compatible /models endpoint.
+
+    A local server is named after whatever that machine happens to have pulled, so any
+    hardcoded default is wrong somewhere. Returns [] if the endpoint is unreachable or
+    does not answer in the OpenAI shape; callers treat that as "ask the operator"
+    rather than guessing."""
+    url = f"{base_url.rstrip('/')}/models"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:  # noqa: BLE001 — unreachable or odd server is not an error here
+        return []
+    items = data.get("data") if isinstance(data, dict) else data
+    if not isinstance(items, list):
+        return []
+    return [str(m["id"]) for m in items if isinstance(m, dict) and m.get("id")]
 
 
 def _strip_code_fence(s: str) -> str:
@@ -86,12 +144,18 @@ class LLMClient:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
-        if not self.api_key:
+        # A key is required for a hosted provider and optional for a server on your own
+        # machine or network, which is how Ollama, Lemonade and llama.cpp normally run.
+        # Without this, `--provider ollama` failed unless you invented a fake key.
+        if not self.api_key and not is_local_endpoint(self.base_url):
             raise AIUnavailable("no API key configured")
 
     @property
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        h = {"Content-Type": "application/json"}
+        if self.api_key:
+            h["Authorization"] = f"Bearer {self.api_key}"
+        return h
 
     async def _post(self, payload: dict, attempts: int = 3, timeout: float = 180.0) -> dict:
         url = f"{self.base_url}/chat/completions"

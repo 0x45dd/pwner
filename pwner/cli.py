@@ -8,7 +8,7 @@ import sys
 
 from . import __version__
 from .agent import run_agentic, run_deterministic
-from .llm import AIUnavailable, LLMClient, resolve_config
+from .llm import AIUnavailable, LLMClient, discover_models, is_local_endpoint, resolve_config
 from .tools import ScanContext
 from .tui import TUI
 
@@ -33,7 +33,7 @@ def _add_common(sp: argparse.ArgumentParser) -> None:
 
 def _add_llm(sp: argparse.ArgumentParser) -> None:
     sp.add_argument("--provider", default=None,
-                    help="openai|deepseek|anthropic|gemini|ollama (presets; default openai)")
+                    help="openai|deepseek|anthropic|gemini|ollama|lemonade (presets; default openai). Anything else OpenAI-compatible: use --base-url")
     sp.add_argument("--model", default=None, help="override model name")
     sp.add_argument("--api-key", default=None, help="override API key (or set PWNER_API_KEY)")
     sp.add_argument("--base-url", default=None, help="override base URL (or set PWNER_BASE_URL)")
@@ -174,12 +174,24 @@ async def _run_chat(args: argparse.Namespace) -> int:
         except Exception as e:  # noqa: BLE001
             tui.log(f"[red]config error: {e}[/red]")
             key = ""
-        if key:
-            try:
-                client = LLMClient(key, base, model)
-                tui.log(f"[dim]model={model} · provider base={base}[/dim]")
-            except AIUnavailable as e:
-                tui.log(f"[yellow]{e}[/yellow]")
+        # A server on your own machine usually has no key at all, so the presence of a
+        # key is not what decides whether the agent can run — reachability is.
+        if key or is_local_endpoint(base):
+            if not model:
+                found = await discover_models(base, key)
+                if found:
+                    model = found[0]
+                    tui.log(f"[dim]model not set — using {model} "
+                            f"({len(found)} available on that server)[/dim]")
+                else:
+                    tui.log(f"[yellow]no model set and {base} did not answer /models — "
+                            f"pass --model, or run `pwner setup`.[/yellow]")
+            if model:
+                try:
+                    client = LLMClient(key, base, model)
+                    tui.log(f"[dim]model={model} · provider base={base}[/dim]")
+                except AIUnavailable as e:
+                    tui.log(f"[yellow]{e}[/yellow]")
         else:
             tui.log("[yellow]no API key configured — deterministic mode. `/scan` works; "
                     "set a key (restart with --api-key, or run `pwner` to configure) for the chat agent.[/yellow]")
@@ -321,26 +333,63 @@ def _run_wizard() -> int:
     """One-time interactive setup: provider + API key (saved), then open the session.
     Re-run any time with `pwner setup`."""
     from . import config as pwner_config
+    from .llm import LOCAL_PROVIDERS, PRESETS
     saved = pwner_config.load()
     print(_BANNER)
     print("Welcome to pwner — one-time setup (re-run later with `pwner setup`).\n")
-    provider = input(f"Provider [openai/deepseek/anthropic/gemini/ollama] "
+    provider = input(f"Provider [{'/'.join(PRESETS)}] "
                      f"(default {saved.get('provider', 'openai')}): ").strip().lower() \
                or saved.get("provider", "openai")
+
+    local = provider in LOCAL_PROVIDERS
+    preset = PRESETS.get(provider, {})
+    base_url = ""
+    model = ""
+    if local:
+        # A server on your own hardware is on whatever port and host you gave it, and
+        # serves whatever models that machine has pulled — neither is guessable.
+        default_base = str(saved.get("base_url") or preset.get("base_url", ""))
+        base_url = input(f"Base URL (default {default_base}): ").strip() or default_base
+        print("  looking for models on that server…")
+        found = asyncio.run(discover_models(base_url))
+        if found:
+            for i, name in enumerate(found[:12], 1):
+                print(f"    {i}. {name}")
+            pick = input(f"Model [number or name] (default {found[0]}): ").strip()
+            model = found[int(pick) - 1] if pick.isdigit() and 1 <= int(pick) <= len(found) \
+                else (pick or found[0])
+        else:
+            print("  could not reach it — is the server running? You can set the model by hand.")
+            model = input(f"Model (default {saved.get('model') or preset.get('model') or 'none'}): ")\
+                .strip() or str(saved.get("model") or preset.get("model") or "")
+
     saved_key = saved.get("api_key", "")
-    hint = "(saved)" if saved_key else "(none — Enter to run deterministic)"
-    api_key = input(f"API key {hint}: ").strip() or saved_key
+    if local and is_local_endpoint(base_url):
+        hint = "(optional — most local servers have none, Enter to skip)"
+    else:
+        hint = "(saved)" if saved_key else "(none — Enter to run deterministic)"
+    api_key = input(f"API key {hint}: ").strip() or (saved_key if not local else "")
     target = input("Target (host / IP / CIDR / domain — optional, set later with /target): ").strip()
-    if api_key:
-        save_yn = input("Save provider + key to ~/.config/pwner/config.json? [Y/n]: ").strip().lower()
+
+    if api_key or local:
+        save_yn = input("Save settings to ~/.config/pwner/config.json? [Y/n]: ").strip().lower()
         if save_yn != "n":
-            pwner_config.save({"provider": provider, "api_key": api_key})
+            entry = {"provider": provider, "api_key": api_key}
+            if base_url:
+                entry["base_url"] = base_url
+            if model:
+                entry["model"] = model
+            pwner_config.save(entry)
     argv = ["chat"]
     if target:
         argv.append(target)
     argv += ["--provider", provider]
     if api_key:
         argv += ["--api-key", api_key]
+    if base_url:
+        argv += ["--base-url", base_url]
+    if model:
+        argv += ["--model", model]
     args = _parser().parse_args(argv)
     try:
         return asyncio.run(_run(args))
