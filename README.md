@@ -127,7 +127,7 @@ pip install -e .
 Then the external tools, and a check:
 
 ```bash
-./scripts/install-deps.sh   # brew/apt/pacman/dnf
+./scripts/install-deps.sh   # brew/apt/kali/pacman/dnf
 pwner doctor               # what's missing
 ```
 
@@ -135,6 +135,13 @@ pwner doctor               # what's missing
 package instead of failing. `pwner doctor` reports every external tool, what each one
 enables, and the install command *for the system you are on*; it exits non-zero only when
 nmap is missing, so it works as a setup check in a script.
+
+**On Kali there is almost nothing to install.** A default Kali image already ships 8 of the
+11 external tools pwner drives — nmap, hydra, netexec, impacket, certipy, searchsploit,
+hashcat and snmpwalk. `sudo apt install nuclei bloodhound.py` adds two more, and only
+kerbrute is unpackaged. pwner detects Kali as its own ecosystem rather than as Debian, so
+`pwner doctor` hands you apt commands instead of the source builds a plain Debian box needs.
+If you are choosing where to run this, run it there.
 
 <details>
 <summary><b>uv, or just the command</b></summary>
@@ -149,7 +156,8 @@ pipx install -e .
 <details>
 <summary><b>Docker</b></summary>
 
-The whole toolchain in one image, nothing installed on your host:
+The whole toolchain in one image, nothing installed on your host. The base is Kali, so
+every tool but kerbrute comes from apt:
 
 ```bash
 docker build -t pwner .
@@ -164,9 +172,10 @@ docker run --rm -it --net=host \
 without them it quietly falls back to slower connect scans and finds fewer hosts. The
 volumes persist your key and your saved transcripts.
 
-This Dockerfile has **not been built end to end yet** — the package names and release assets
-in it were checked against the Debian archive and the upstream APIs, but treat the first
-build as untested.
+The image is ~2.7 GB and carries 10 of the 11 external tools plus nuclei's 14k templates,
+baked in so the first scan does not stall on a download. kerbrute is the one omission: it
+has no Kali package and no arm64 release. Built and run on arm64; the package set resolves
+on amd64 too.
 
 </details>
 

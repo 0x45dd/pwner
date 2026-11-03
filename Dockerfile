@@ -11,63 +11,38 @@
 #
 # The volumes persist the saved API key and the /dump transcripts; without them both are
 # lost when the container exits.
-FROM python:3.12-slim
+#
+# The base is Kali rather than Debian because Kali's repository carries the whole
+# toolchain pwner drives — nuclei, exploitdb, impacket, netexec, certipy, bloodhound —
+# which Debian's does not. On Debian this file had to fetch a release asset for nuclei,
+# clone exploitdb from GitLab and build four pipx venvs; here it is one apt line, and it
+# resolves on both amd64 and arm64.
+FROM kalilinux/kali-rolling
 
-# One layer for the OS-packaged tools. `snmp` is the package that provides snmpwalk.
-# exploitdb is deliberately absent: it is a Kali package, not a Debian one, so
-# `apt-get install exploitdb` fails on this base. See WITH_EXPLOITDB below.
+# One layer for every external tool pwner can shell out to, except kerbrute, which Kali
+# does not package either. `snmp` is the package that provides snmpwalk; `exploitdb`
+# provides searchsploit and is ~192 MB installed, the largest single item here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         nmap \
         hydra \
         snmp \
         hashcat \
-        git \
+        nuclei \
+        exploitdb \
+        impacket-scripts \
+        netexec \
+        certipy-ad \
+        bloodhound.py \
+        python3 \
+        python3-venv \
         curl \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# nuclei ships prebuilt per-arch; pick the right asset instead of building Go here.
-ARG NUCLEI_VERSION=3.11.1
-RUN set -eux; \
-    arch="$(dpkg --print-architecture)"; \
-    case "$arch" in \
-        amd64) na=amd64 ;; \
-        arm64) na=arm64 ;; \
-        *) echo "unsupported arch $arch" >&2; exit 1 ;; \
-    esac; \
-    url="https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_${na}.zip"; \
-    apt-get update && apt-get install -y --no-install-recommends unzip; \
-    curl -fsSL "$url" -o /tmp/nuclei.zip; \
-    unzip -j /tmp/nuclei.zip nuclei -d /usr/local/bin; \
-    chmod +x /usr/local/bin/nuclei; \
-    rm /tmp/nuclei.zip; \
-    apt-get purge -y unzip; apt-get autoremove -y; rm -rf /var/lib/apt/lists/*
-
-# The Python-ecosystem tools. Each gets its own venv via pipx so their pinned
-# dependencies cannot conflict with each other or with pwner's.
-# netexec is NOT on PyPI — it has to come from the repository.
-ENV PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin
-RUN pip install --no-cache-dir pipx \
-    && pipx install impacket \
-    && pipx install certipy-ad \
-    && pipx install bloodhound \
-    && pipx install git+https://github.com/Pennyw0rth/NetExec \
-    && rm -rf /root/.cache
-
-# ExploitDB is off by default: searchsploit needs the whole exploit corpus locally, which
-# adds roughly a gigabyte for one optional tool. exploit_search still works without it —
-# it falls back to the local nuclei template index. Turn it on with:
-#   docker build --build-arg WITH_EXPLOITDB=1 -t pwner .
-ARG WITH_EXPLOITDB=0
-RUN if [ "$WITH_EXPLOITDB" = "1" ]; then \
-        git clone --depth 1 https://gitlab.com/exploit-database/exploitdb.git /opt/exploitdb \
-        && ln -s /opt/exploitdb/searchsploit /usr/local/bin/searchsploit; \
-    fi
-
 # kerbrute publishes prebuilt binaries for linux_386 and linux_amd64 only — there is no
-# arm64 release. On arm64 it is skipped rather than pulling the Go toolchain into the
-# image for one tool; `pwner doctor` will report it missing, and only kerbrute_userenum
-# needs it.
+# arm64 release, and it is not in Kali's repository. On arm64 it is skipped rather than
+# pulling the Go toolchain into the image for one tool; `pwner doctor` will report it
+# missing, and only kerbrute_userenum needs it.
 ARG KERBRUTE_VERSION=1.0.3
 RUN set -eux; \
     if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
@@ -78,20 +53,38 @@ RUN set -eux; \
         echo "kerbrute: no prebuilt binary for this architecture, skipping"; \
     fi
 
+# pwner goes in its own venv. Kali's Python is externally managed (PEP 668), so a plain
+# `pip install` into the system interpreter is refused — and overriding that would put
+# pwner's pinned dependencies in the same place as the system tools' own.
+ENV PWNER_VENV=/opt/pwner
+RUN python3 -m venv "$PWNER_VENV"
+ENV PATH="/opt/pwner/bin:$PATH"
+
 WORKDIR /app
 # Copy the metadata first so the dependency layer survives a source-only change.
 COPY pyproject.toml README.md LICENSE requirements.txt ./
 COPY pwner ./pwner
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . && rm -rf /root/.cache
 
-# Templates are ~14k files and a slow first run; bake them in. Non-fatal so the image
-# still builds without network access to the template repo.
-RUN nuclei -update-templates -duc 2>/dev/null || \
+# Templates are ~14k files and a slow first run; bake them in. Deliberately NOT passing
+# -duc: that flag reads as "disable the update-check nag" but also suppresses the template
+# download itself, so the step exits 0 having fetched nothing. Verified in this image:
+# with -duc, 0 templates; without it, 14104.
+#
+# Still non-fatal so the image builds without access to the template repo — but the count
+# is asserted below, so a silent miss cannot pass again.
+RUN nuclei -update-templates 2>/dev/null || \
     echo "nuclei templates not fetched at build time — run 'nuclei -update-templates' once"
 
 # Fail the build if a tool pwner expects did not land. `doctor` exits non-zero only when
 # a CORE dependency (nmap) is missing, so print the full report either way.
 RUN pwner doctor
+
+# And assert the templates actually arrived. nuclei_scan is useless without them, and the
+# fetch above is allowed to fail quietly, so this is the line that keeps it honest.
+RUN n="$(find /root/.local/nuclei-templates -name '*.yaml' 2>/dev/null | wc -l)"; \
+    echo "nuclei templates baked in: $n"; \
+    [ "$n" -gt 1000 ] || { echo "ERROR: nuclei templates missing from the image" >&2; exit 1; }
 
 ENTRYPOINT ["pwner"]
 CMD []

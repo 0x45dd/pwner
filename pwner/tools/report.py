@@ -179,17 +179,31 @@ async def ledger(ctx: ScanContext, args: dict) -> dict:
 # `None` means the tool has no package in that ecosystem and needs the fallback route.
 # Each entry was checked against that ecosystem's own index, not assumed.
 _PACKAGES: dict[str, dict[str, str | None]] = {
-    "nmap":         {"brew": "nmap", "apt": "nmap", "pacman": "nmap", "dnf": "nmap"},
-    # nuclei: Homebrew and Fedora carry it; Debian does not, and Arch has it only in the AUR.
-    "nuclei":       {"brew": "nuclei", "apt": None, "pacman": None, "dnf": "nuclei"},
-    "hydra":        {"brew": "hydra", "apt": "hydra", "pacman": "hydra", "dnf": "hydra"},
+    "nmap":         {"brew": "nmap", "apt": "nmap", "kali": "nmap",
+                     "pacman": "nmap", "dnf": "nmap"},
+    # nuclei: Homebrew, Fedora and Kali carry it; Debian does not, and Arch has it only
+    # in the AUR.
+    "nuclei":       {"brew": "nuclei", "apt": None, "kali": "nuclei",
+                     "pacman": None, "dnf": "nuclei"},
+    "hydra":        {"brew": "hydra", "apt": "hydra", "kali": "hydra",
+                     "pacman": "hydra", "dnf": "hydra"},
     # the binary is snmpwalk, but no distro names the package that.
-    "snmpwalk":     {"brew": "net-snmp", "apt": "snmp", "pacman": "net-snmp", "dnf": "net-snmp-utils"},
+    "snmpwalk":     {"brew": "net-snmp", "apt": "snmp", "kali": "snmp",
+                     "pacman": "net-snmp", "dnf": "net-snmp-utils"},
     # exploitdb: Homebrew, Arch and Kali package it; plain Debian/Ubuntu and Fedora do not.
-    "searchsploit": {"brew": "exploitdb", "apt": None, "pacman": "exploitdb", "dnf": None},
-    "hashcat":      {"brew": "hashcat", "apt": "hashcat", "pacman": "hashcat", "dnf": "hashcat"},
+    "searchsploit": {"brew": "exploitdb", "apt": None, "kali": "exploitdb",
+                     "pacman": "exploitdb", "dnf": None},
+    "hashcat":      {"brew": "hashcat", "apt": "hashcat", "kali": "hashcat",
+                     "pacman": "hashcat", "dnf": "hashcat"},
+    # Kali packages the whole AD toolchain that every other distro leaves to pipx, and
+    # ships most of it preinstalled. Sending a Kali user to pipx would build a second,
+    # worse copy of something already on their PATH.
+    "impacket":          {"kali": "impacket-scripts"},
+    "certipy":           {"kali": "certipy-ad"},
+    "bloodhound-python": {"kali": "bloodhound.py"},
+    "netexec":           {"kali": "netexec"},
 }
-_INSTALL_CMD = {"brew": "brew install", "apt": "sudo apt install",
+_INSTALL_CMD = {"brew": "brew install", "apt": "sudo apt install", "kali": "sudo apt install",
                 "pacman": "sudo pacman -S", "dnf": "sudo dnf install"}
 
 # Tools from a language ecosystem rather than the OS package manager. netexec is NOT on
@@ -202,25 +216,48 @@ _PIPX_PACKAGES = {
 }
 
 
+_OS_RELEASE = "/etc/os-release"  # module-level so tests can point it at a fixture
+
+
+def _is_kali() -> bool:
+    """Kali names itself in os-release. It is treated as its own ecosystem rather than as
+    Debian because its repository carries a lot that Debian's does not — nuclei, exploitdb,
+    impacket, netexec, certipy — so the Debian hints would send a Kali user the long way
+    round for things that are already on their PATH."""
+    try:
+        with open(_OS_RELEASE, encoding="utf-8") as fh:
+            for line in fh:
+                key, sep, value = line.strip().partition("=")
+                if sep and key == "ID" and value.strip('"\'').lower() == "kali":
+                    return True
+    except OSError:
+        pass
+    return False
+
+
 def _package_manager() -> str | None:
     """Which OS package manager this machine actually has, so hints are paste-ready."""
     for mgr in ("brew", "apt", "pacman", "dnf"):
         if shutil.which(mgr):
-            return mgr
+            return "kali" if mgr == "apt" and _is_kali() else mgr
     return None
 
 
 def _hint(name: str, pm: str | None) -> str:
     """How to install `name` here. When this machine has no package manager we recognise,
-    name the package per ecosystem rather than printing a command that cannot run."""
+    name the package per ecosystem rather than printing a command that cannot run.
+
+    The OS package wins over the language-ecosystem one: if the distro ships it, that is
+    the copy the rest of the system expects."""
+    pkg = _PACKAGES.get(name, {}).get(pm) if pm else None
+    if pkg:
+        return f"{_INSTALL_CMD[pm]} {pkg}"
     if name in _PIPX_PACKAGES:
         return f"pipx install {_PIPX_PACKAGES[name]}"
     if name == "kerbrute":
         # Upstream ships linux_386 and linux_amd64 only — arm64 needs the Go route.
+        # Kali does not package it either, so this is the route everywhere.
         return "prebuilt binary from github.com/ropnop/kerbrute (arm64: go install)"
-    pkg = _PACKAGES.get(name, {}).get(pm) if pm else None
-    if pkg:
-        return f"{_INSTALL_CMD[pm]} {pkg}"
     if name == "nuclei":
         return "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
     if name == "searchsploit":
