@@ -75,6 +75,12 @@ Python **3.10+**. **nmap is the only hard requirement** — everything else enab
 and is optional.
 
 ```bash
+brew install 0x45dd/tap/pwner
+```
+
+That brings nmap with it. From source instead:
+
+```bash
 git clone https://github.com/0x45dd/pwner.git
 cd pwner
 python3 -m venv .venv && source .venv/bin/activate
