@@ -113,6 +113,15 @@ Python **3.10+**. **nmap is the only hard requirement** — everything else enab
 and is optional.
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/0x45dd/pwner/main/install.sh | bash
+```
+
+That builds an isolated virtualenv under `~/.local/share/pwner`, leaves your system
+Python alone, and puts `pwner` on your PATH so it works from any directory. Add
+`--with-tools` to install nmap and the optional scanners too, and `--uninstall` to take
+it all back out. On macOS there is also a tap:
+
+```bash
 brew install 0x45dd/tap/pwner
 ```
 
