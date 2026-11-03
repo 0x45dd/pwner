@@ -24,6 +24,13 @@ dependencies = [
     "textual>=0.60",
 ]
 
+[project.urls]
+Homepage = "https://www.pwner.si"
+Documentation = "https://www.pwner.si/docs"
+Source = "https://github.com/0x45dd/pwner"
+Issues = "https://github.com/0x45dd/pwner/issues"
+Security = "https://github.com/0x45dd/pwner/security/policy"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
