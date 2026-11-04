@@ -17,6 +17,14 @@
 </p>
 
 <p align="center">
+  <b>English</b> &nbsp;·&nbsp;
+  <a href="README.es.md">Español</a> &nbsp;·&nbsp;
+  <a href="README.de.md">Deutsch</a> &nbsp;·&nbsp;
+  <a href="README.ja.md">日本語</a> &nbsp;·&nbsp;
+  <a href="README.tr.md">Türkçe</a>
+</p>
+
+<p align="center">
   <a href="#safety-model">Safety model</a> &nbsp;·&nbsp;
   <a href="#install">Install</a> &nbsp;·&nbsp;
   <a href="#first-run">First run</a> &nbsp;·&nbsp;
@@ -91,7 +99,7 @@ the answer is always no.
 
 These two are the part of the codebase under the most test: 77 tests on the scope boundary
 in [`tests/test_scope.py`](tests/test_scope.py) and 13 on the consent gate in
-[`tests/test_consent.py`](tests/test_consent.py), out of 410 overall. If you are going to
+[`tests/test_consent.py`](tests/test_consent.py), out of 532 overall. If you are going to
 read one thing before pointing this at a network, read those.
 
 Intended use:
