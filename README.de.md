@@ -207,6 +207,15 @@ Englisch:
 - [Contributing](CONTRIBUTING.md) — Entwicklungsumgebung, das tools-Paket, ein Werkzeug hinzufügen
 - [Security](SECURITY.md) — eine Schwachstelle in pwner selbst melden
 
+## Kontakt
+
+Für alles, was nicht in ein öffentliches Issue gehört — Fragen, privates Feedback oder
+direkter Kontakt — schreib an [berk@planckproof.ai](mailto:berk@planckproof.ai).
+
+Bugs und Feature-Wünsche sind als [Issue](https://github.com/0x45dd/pwner/issues) besser aufgehoben, und Sicherheitslücken
+sollten über [SECURITY.md](SECURITY.md) laufen, damit sie privat bleiben, bis es einen Fix
+gibt.
+
 ## Lizenz
 
 [GNU AGPL-3.0-or-later](LICENSE). Copyright (C) 2026 Berk D.

@@ -194,6 +194,14 @@ Tam komut ve yapılandırma referansı, ajan döngüsü, modül kataloğu ve kur
 - [Contributing](CONTRIBUTING.md) — geliştirme ortamı, tools paketi, tool ekleme
 - [Security](SECURITY.md) — pwner'ın kendisindeki bir zafiyeti bildirmek
 
+## İletişim
+
+Herkese açık bir issue'ya uygun olmayan her şey için — sorular, özel geri bildirim ya da
+doğrudan ulaşmak — [berk@planckproof.ai](mailto:berk@planckproof.ai) adresine yazabilirsin.
+
+Hatalar ve özellik istekleri [issue](https://github.com/0x45dd/pwner/issues) olarak daha iyi işler; güvenlik zafiyetleri
+ise bir düzeltme çıkana kadar özel kalsın diye [SECURITY.md](SECURITY.md) üzerinden gitmeli.
+
 ## Lisans
 
 [GNU AGPL-3.0-or-later](LICENSE). Copyright (C) 2026 Berk D.

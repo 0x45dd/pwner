@@ -203,6 +203,15 @@ módulos y las reglas están en **[pwner.si](https://www.pwner.si/)**, solo en i
 - [Contributing](CONTRIBUTING.md) — entorno de desarrollo, el paquete tools, añadir una herramienta
 - [Security](SECURITY.md) — reportar una vulnerabilidad en pwner mismo
 
+## Contacto
+
+Para cualquier cosa que no encaje en un issue público —preguntas, comentarios privados o
+simplemente ponerse en contacto directamente— escribe a [berk@planckproof.ai](mailto:berk@planckproof.ai).
+
+Los bugs y las peticiones de funcionalidad funcionan mejor como [issues](https://github.com/0x45dd/pwner/issues), y las
+vulnerabilidades de seguridad deberían ir por [SECURITY.md](SECURITY.md) para que sigan
+siendo privadas hasta que haya una corrección.
+
 ## Licencia
 
 [GNU AGPL-3.0-or-later](LICENSE). Copyright (C) 2026 Berk D.

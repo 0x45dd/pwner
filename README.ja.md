@@ -193,6 +193,14 @@ OS フィンガープリント、既知の問題の検出、そして同じ検�
 - [Contributing](CONTRIBUTING.md) — 開発環境、tools パッケージ、ツールの追加方法
 - [Security](SECURITY.md) — pwner 自体の脆弱性の報告
 
+## 連絡先
+
+公開の issue に向かないこと（質問、非公開のフィードバック、直接の連絡）は
+[berk@planckproof.ai](mailto:berk@planckproof.ai) までメールしてください。
+
+バグや機能の要望は [issue](https://github.com/0x45dd/pwner/issues) のほうが適しています。脆弱性については、修正ができるまで
+非公開に保てるよう [SECURITY.md](SECURITY.md) の手順に従ってください。
+
 ## ライセンス
 
 [GNU AGPL-3.0-or-later](LICENSE)。Copyright (C) 2026 Berk D.

@@ -273,6 +273,14 @@ Full command and config reference, the agent loop, the module catalogue and the 
 - [Contributing](CONTRIBUTING.md) — development setup, the tools package, adding a tool
 - [Security](SECURITY.md) — reporting a vulnerability in pwner itself
 
+## Contact
+
+For anything that does not belong in a public issue — questions, private feedback, or
+getting in touch directly — email [berk@planckproof.ai](mailto:berk@planckproof.ai).
+
+Bugs and feature requests work better as [issues](https://github.com/0x45dd/pwner/issues), and security vulnerabilities
+should go through [SECURITY.md](SECURITY.md) so they stay private until there is a fix.
+
 ## License
 
 [GNU AGPL-3.0-or-later](LICENSE). Copyright (C) 2026 Berk D.
