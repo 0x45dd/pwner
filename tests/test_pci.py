@@ -52,14 +52,15 @@ def test_a_completed_handshake_is_open():
     assert classify_error(None) == "open"
 
 
-def test_a_timeout_is_filtered():
-    assert classify_error(asyncio.TimeoutError()) == "filtered"
-
-
-def test_a_builtin_timeout_is_still_filtered():
-    """On 3.11+ the builtin TimeoutError is itself an OSError, so a careless isinstance
-    order would classify a dropped packet as a generic error and lose the evidence."""
-    assert classify_error(TimeoutError()) == "filtered"
+@pytest.mark.parametrize("exc", [asyncio.TimeoutError(), TimeoutError()])
+def test_either_kind_of_timeout_is_filtered(exc):
+    """Both classes, because they are not the same one on every supported version. On
+    3.11+ asyncio.TimeoutError *is* the builtin TimeoutError; on 3.10 it is
+    concurrent.futures.TimeoutError while the builtin one — what a socket-level timeout
+    raises — is an OSError with no errno. Matching only the asyncio alias classified a
+    dropped packet as "error" on 3.10, turning the most common outcome on a working
+    boundary into 'inconclusive'. CI caught it on 3.10 after it passed on 3.12."""
+    assert classify_error(exc) == "filtered"
 
 
 def test_a_refused_connection_is_its_own_state_not_a_generic_error():

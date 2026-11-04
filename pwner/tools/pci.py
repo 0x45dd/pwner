@@ -125,12 +125,20 @@ def parse_ports(spec: str | None) -> list[int]:
 def classify_error(exc: BaseException | None) -> str:
     """Map the outcome of one TCP connect to a probe state. None means it completed.
 
-    Order matters: ConnectionRefusedError is an OSError, and on 3.11+ the builtin
-    TimeoutError is one too, so both are matched before the generic OSError branch.
+    Order matters: ConnectionRefusedError is an OSError, and so is the builtin
+    TimeoutError, so both are matched before the generic OSError branch.
+
+    Both timeout types are listed because they are not the same class on every version
+    we support. On 3.11+ asyncio.TimeoutError *is* the builtin TimeoutError, but on 3.10
+    it is concurrent.futures.TimeoutError, while the builtin one — what a socket-level
+    timeout raises — is an OSError carrying no errno. Matching only the asyncio alias
+    there sends a dropped packet into the generic branch and classifies it "error", which
+    reads as inconclusive instead of blocked: the most common outcome on a working
+    boundary, scored as the one thing it is not.
     """
     if exc is None:
         return "open"
-    if isinstance(exc, asyncio.TimeoutError):
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
         return "filtered"
     if isinstance(exc, ConnectionRefusedError):
         return "refused"
