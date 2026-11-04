@@ -14,6 +14,7 @@ import json
 import os
 import random
 import re
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlparse
@@ -131,6 +132,29 @@ def resolve_config(provider: str, api_key: str, base_url: str, model: str) -> tu
            or saved.get("api_key", "")
            or "").strip()
     return key, base, mod
+
+
+#: Arguments that say WHERE a call acts, as opposed to what it sends. Repeating a tool
+#: against the same place with a new payload every time is the loop the exact-match
+#: checks cannot see, so the site is judged on these keys alone.
+_SITE_KEYS = ("host", "hosts", "target", "targets", "port", "path", "url",
+              "dc_ip", "server", "ip", "domain")
+_SITE_WINDOW = 12   # how many recent calls to judge
+_SITE_NUDGE = 6     # same site this often within the window -> tell the model
+_SITE_STOP = 10     # and this often, after it was already told -> end the turn
+
+
+def _call_site(tool_call: dict) -> str:
+    """Tool name plus the place it is acting on, with the payload left out."""
+    name = tool_call["function"]["name"]
+    try:
+        args = json.loads(tool_call["function"].get("arguments") or "{}")
+    except Exception:  # noqa: BLE001 — malformed arguments still identify a site by tool
+        args = {}
+    if not isinstance(args, dict):
+        args = {}
+    where = {k: args[k] for k in _SITE_KEYS if k in args}
+    return name + "|" + json.dumps(where, sort_keys=True, default=str)
 
 
 def transcript_size(messages: list[dict]) -> int:
@@ -394,6 +418,13 @@ class LLMClient:
         step = 0
         stall_sig: str | None = None
         stall = 0
+        # Where each call acted, payload excluded, for the last few steps. The exact-repeat
+        # checks below all key on the arguments, so an agent that hammers one endpoint with a
+        # slightly different payload every time slips past every one of them: the signature
+        # changes, the counter resets, and nothing trips. Judging by call SITE instead catches
+        # that, and a window catches it even when the repeats are not consecutive.
+        call_sites: list[str] = []
+        site_nudged: set[str] = set()
         # Per-(tool,args) no-progress tracking: if a call keeps returning the IDENTICAL result it is
         # producing no new information — nudge the model to change approach instead of letting it
         # spin. Tools whose whole job is to be polled repeatedly are exempt.
@@ -485,6 +516,28 @@ class LLMClient:
                     return f"stopped: agent repeated the same action {stall_limit}x in a row (stuck)."
             else:
                 stall, stall_sig = 0, sig
+
+            # Same tool, same place, different payload, same lack of progress. Nudge once,
+            # then stop if it carries on regardless.
+            for tc in tool_calls:
+                if tc["function"]["name"] not in _POLL_TOOLS:
+                    call_sites.append(_call_site(tc))
+            del call_sites[:-_SITE_WINDOW]
+            if len(call_sites) >= _SITE_WINDOW:
+                site, hits = Counter(call_sites).most_common(1)[0]
+                if hits >= _SITE_STOP and site in site_nudged:
+                    where = site.split("|", 1)[0]
+                    return (f"stopped: agent kept calling {where} against the same target "
+                            f"{hits} times in the last {_SITE_WINDOW} steps without progress.")
+                if hits >= _SITE_NUDGE and site not in site_nudged:
+                    site_nudged.add(site)
+                    where = site.split("|", 1)[0]
+                    messages.append({"role": "user", "content":
+                        f"[SYSTEM NOTE] You have called '{where}' against the same target {hits} "
+                        f"times in the last {_SITE_WINDOW} steps, varying the payload and learning "
+                        f"nothing new. Whatever you were trying is not going to work this way. "
+                        f"Record anything you have already confirmed, then do something materially "
+                        f"different or move to another target."})
             # surface the model's reasoning it wrote alongside this batch of tool calls
             thought = (msg.get("content") or "").strip()
             if thought and on_thought is not None:
