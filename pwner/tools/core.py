@@ -177,6 +177,84 @@ async def _consent(ctx: ScanContext, action: str, target: str, risk: str = "high
     return ok
 
 
+def _covered_by(new: str, scope: str) -> bool:
+    """True when every host `new` names already sits inside `scope`.
+
+    Both sides may be a host, a CIDR, a domain, or a comma-separated list of those. The
+    IP cases are decided arithmetically; names are compared exactly, because resolving a
+    domain to decide authorization would let whoever controls DNS widen the scope.
+    """
+    if not (new or "").strip() or not (scope or "").strip():
+        return False
+    scope_nets, scope_names = [], set()
+    for part in str(scope).split(","):
+        part = part.strip().lower().rstrip(".")
+        if not part:
+            continue
+        try:
+            scope_nets.append(ipaddress.ip_network(part, strict=False))
+        except ValueError:
+            scope_names.add(part)
+    for part in str(new).split(","):
+        part = part.strip().lower().rstrip(".")
+        if not part:
+            continue
+        try:
+            net = ipaddress.ip_network(part, strict=False)
+        except ValueError:
+            if part not in scope_names:
+                return False
+            continue
+        if not any(net.version == s.version and net.subnet_of(s) for s in scope_nets):
+            return False
+    return True
+
+
+def _within_authorized_scope(new: str, ctx: ScanContext) -> bool:
+    """True when `new` needs no fresh approval: it is inside the current scope, or inside
+    something the operator already authorized this session."""
+    if _covered_by(new, ctx.target or ""):
+        return True
+    return any(_covered_by(new, g) for g in ctx.scope_grants)
+
+
+async def _consent_scope_change(ctx: ScanContext, new: str) -> bool:
+    """Approval for moving the authorized scope somewhere it has not been.
+
+    Deliberately NOT `_consent`. That function treats a single earlier approval as
+    blanket consent for the rest of the session, which is defensible for "yes, brute
+    force this" and indefensible here: approving an SSH brute force must not also
+    authorize reaching a different network. `--auto-consent` does not cover this either,
+    for the same reason — it approves high-impact *actions* inside the scope, not a new
+    scope. Widening is the operator's own decision, so it is made in their own input: by
+    answering this prompt, or by naming the wider target on the command line.
+
+    A non-interactive run cannot ask, so the answer there is no.
+    """
+    if not ctx.interactive:
+        return False
+    text = (f"\n  [!] pwner agent requests a SCOPE CHANGE:\n"
+            f"     current scope: {ctx.target or '(none)'}\n"
+            f"     requested:     {new}\n"
+            f"     this authorizes traffic to a target the current scope does not cover.\n"
+            f"     approve? [y/N] ")
+    try:
+        ch = ctx.operator_channel
+        ans = await ch.consent(text) if ch is not None else await asyncio.to_thread(input, text)
+    except (EOFError, KeyboardInterrupt, asyncio.CancelledError):
+        ans = ""
+    ok = (ans or "").strip().lower() in ("y", "yes", "a", "approve")
+    ctx.scope_requests.append({"from": ctx.target or "", "to": new,
+                               "decision": "approved" if ok else "denied"})
+    return ok
+
+
+def _grant_scope(ctx: ScanContext, target: str) -> None:
+    """Record `target` as authorized, so narrowing and coming back does not re-prompt."""
+    if target and target not in ctx.scope_grants:
+        ctx.scope_grants.append(target)
+
+
 def _nuclei_template_dir() -> str | None:
     """Locate the nuclei templates base directory (nuclei v3 doesn't always find it
     on its own). Env override PWNER_NUCLEI_TEMPLATES wins; then common install paths."""
@@ -266,6 +344,12 @@ class ScanContext:
     http_cookies: Any = None      # shared cookie jar so web tools stay logged in across calls
     scheme_cache: dict = field(default_factory=dict)  # (host,port) -> "http"/"https", probed once
     ledger: Any = None            # engagement working-memory (surface/creds/hypotheses/tried)
+    # Scopes the operator has authorized this session, widest-first in practice. Separate
+    # from `target` because `target` moves: narrowing to one host and back again must not
+    # count as widening, and `consent_requests` cannot hold these — one approval there is
+    # treated as blanket consent, which must never extend to reaching a new network.
+    scope_grants: list[str] = field(default_factory=list)
+    scope_requests: list[dict] = field(default_factory=list)
 
     def scope_networks(self) -> list:
         """Return ip_network objects for CIDR targets, else [] (single host)."""
@@ -482,8 +566,10 @@ def _enforce_scope(tool_name: str, args: dict, ctx: ScanContext) -> None:
             if not _literal_in_scope(literal, ctx):
                 raise ToolError(
                     f"{literal!r} (argument {key!r} of {tool_name}) is outside the authorized "
-                    f"scope ({ctx.target!r}). Only the operator can widen scope — ask them, "
-                    f"then set_target.")
+                    f"scope ({ctx.target!r}). Only the operator can change scope. Say what "
+                    f"you need in your reply and wait for them: set_target on a target the "
+                    f"current scope does not cover now prompts the operator for approval, "
+                    f"and is refused outright when there is nobody to answer.")
 
 
 def _is_root() -> bool:

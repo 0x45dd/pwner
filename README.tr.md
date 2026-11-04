@@ -60,6 +60,10 @@ varsayılan olarak scope içindedir: kendi kontrolünü yapmayı unutan bir tool
 kayıtlı olmayan bir tool adı ise kapalı başarısız olur. Bir network argümanının tamamen
 yetkilendirmenin içinde kalması gerekir.
 
+Muhafızın kontrol edemediği tek şey `set_target`, çünkü argümanı *yeni scope'un kendisi*.
+Bu yüzden kendi kapısı var: daraltmak serbest, zaten yetkilendirdiğinin dışına çıkmak her
+seferinde senin cevabını istiyor, ve `--auto-consent` bunu kapsamıyor.
+
 **Onay kapısı.** Aktif olan her şey, o oturumda sen onaylamadıkça reddedilir. Onay modelin
 dışında çözülür — ajan kendi kendini onaylayamaz — ve etkileşimsiz bir çalıştırmada cevap
 her zaman hayır.
@@ -69,7 +73,7 @@ böylece ajan sınırı aştığını öğrenir ve sınırın içinde devam eder
 
 Kod tabanında en çok test edilen kısım bunlar: scope sınırında
 [`tests/test_scope.py`](tests/test_scope.py) içinde 77 test, onay kapısında
-[`tests/test_consent.py`](tests/test_consent.py) içinde 13 test — toplam 693 testin içinden.
+[`tests/test_consent.py`](tests/test_consent.py) içinde 13 test — toplam 725 testin içinden.
 Bunu bir ağa doğrultmadan önce tek bir şey okuyacaksan, onları oku.
 
 Kullanım amacı:

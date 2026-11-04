@@ -14,6 +14,9 @@ import subprocess
 from .core import (
     ScanContext,
     ToolError,
+    _consent_scope_change,
+    _grant_scope,
+    _within_authorized_scope,
     tool,
 )
 
@@ -101,6 +104,20 @@ async def set_target(ctx: ScanContext, args: dict) -> dict:
     raw_prefix = args.get("prefix")
     prefix = int(raw_prefix) if str(raw_prefix or "").strip().isdigit() else None
     resolved = await asyncio.to_thread(resolve_target_spec, spec, prefix)
+
+    # Scope-exempt means the central guard cannot check this tool: its argument IS the new
+    # scope, so there is nothing to check it against. That left the one hole the scope lock
+    # could not cover — the agent, told "only the operator can widen scope", could call
+    # set_target itself and widen it. Narrowing, or returning to something the operator has
+    # already authorized, stays free; going anywhere else needs their answer.
+    establishing = not (ctx.target or "").strip() and not ctx.scope_grants
+    if not establishing and not _within_authorized_scope(resolved, ctx):
+        if not await _consent_scope_change(ctx, resolved):
+            raise ToolError(
+                f"the operator did not approve a scope change to {resolved!r}; the scope "
+                f"is still {ctx.target!r}. Do not call set_target for this target again — "
+                f"say what you need in your reply and wait for the operator to say it.")
+    _grant_scope(ctx, resolved)
     ctx.target = resolved
     detail = f" (from {spec})" if resolved != spec else ""
     return {"ok": True, "target": resolved, "from": spec,

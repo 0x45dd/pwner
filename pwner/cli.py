@@ -62,7 +62,7 @@ def _parser() -> argparse.ArgumentParser:
     scan.add_argument("--concurrency", type=int, default=20, help="parallel host scans for a range (default 20)")
     scan.add_argument("--range-cap", type=int, default=4096, help="max addresses in a CIDR before refusing (default 4096)")
     scan.add_argument("--auto-consent", action="store_true",
-                      help="auto-approve consent gates for high-impact actions. Use ONLY on targets you are authorized to test.")
+                      help="auto-approve consent gates for high-impact actions INSIDE the scope. It does not authorize a scope change. Use ONLY on targets you are authorized to test.")
     scan.add_argument("-i", "--interactive", action="store_true",
                       help="prompt [y/N] before high-impact actions (brute-force etc.) instead of auto-deny")
     scan.add_argument("--instructions", default="",
@@ -78,7 +78,7 @@ def _parser() -> argparse.ArgumentParser:
                       help="start without the LLM (deterministic /scan only)")
     chat.add_argument("--max-steps", type=int, default=0, help="max agent tool-calling steps per turn (0 = unlimited, default)")
     chat.add_argument("--auto-consent", action="store_true",
-                      help="auto-approve consent gates. Use ONLY on targets you are authorized to test.")
+                      help="auto-approve consent gates for actions inside the scope; it does not authorize a scope change. Use ONLY on targets you are authorized to test.")
     chat.add_argument("--instructions", default="", help="operator steering injected into the agent's brief")
     chat.add_argument("--nuclei-severity", default="low,medium,high,critical",
                       help="nuclei severity filter (default low,medium,high,critical)")

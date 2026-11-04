@@ -95,13 +95,20 @@ in-scope-by-default: one that forgets its own check is still guarded, and an unr
 tool name fails closed. A network argument has to sit entirely inside the authorization, so
 a `/24` scope cannot be widened to a `/16` by a tool argument.
 
+**Changing the scope.** The one thing the guard cannot check is `set_target`, because its
+argument *is* the new scope, so there is nothing to check it against. It carries its own
+gate instead: narrowing, or returning to something you already authorized, is free, and
+moving anywhere else needs your answer every time. An earlier approval for some other
+action does not buy it, `--auto-consent` does not cover it, and a non-interactive run
+refuses it outright.
+
 **Consent gate.** Anything active is denied unless you approve it in that session. The agent
 cannot self-approve — consent is resolved outside the model, and in a non-interactive run
 the answer is always no.
 
 These two are the part of the codebase under the most test: 77 tests on the scope boundary
 in [`tests/test_scope.py`](tests/test_scope.py) and 13 on the consent gate in
-[`tests/test_consent.py`](tests/test_consent.py), out of 693 overall. If you are going to
+[`tests/test_consent.py`](tests/test_consent.py), out of 725 overall. If you are going to
 read one thing before pointing this at a network, read those.
 
 Intended use:

@@ -66,6 +66,11 @@ una que olvide su propia comprobación sigue estando protegida, y un nombre de h
 registrado falla de forma cerrada. Un argumento de red tiene que caber por completo dentro
 de la autorización.
 
+Cambiar el alcance es lo único que el guardia no puede comprobar, porque el argumento
+de `set_target` *es* el nuevo alcance: por eso `set_target` tiene su propia puerta.
+Reducirlo es libre; moverlo fuera de lo que ya autorizaste requiere tu respuesta cada
+vez, y `--auto-consent` no lo cubre.
+
 **Puerta de consentimiento.** Todo lo activo se deniega salvo que lo apruebes en esa sesión.
 El consentimiento se resuelve fuera del modelo —el agente no puede aprobarse a sí mismo— y
 en una ejecución no interactiva la respuesta es siempre no.
@@ -75,7 +80,7 @@ la herramienta, así que el agente aprende que se excedió y continúa dentro de
 
 Esta es la parte del código con más pruebas: 77 pruebas sobre el límite de alcance en
 [`tests/test_scope.py`](tests/test_scope.py) y 13 sobre la puerta de consentimiento en
-[`tests/test_consent.py`](tests/test_consent.py), de 693 en total. Si vas a leer una sola
+[`tests/test_consent.py`](tests/test_consent.py), de 725 en total. Si vas a leer una sola
 cosa antes de apuntar esto a una red, lee esas.
 
 Uso previsto:

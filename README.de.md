@@ -66,6 +66,10 @@ Werkzeugs läuft. Werkzeuge sind standardmäßig im Scope: eines, das seine eige
 vergisst, ist trotzdem abgesichert, und ein nicht registrierter Werkzeugname schlägt
 geschlossen fehl. Ein Netzwerk-Argument muss vollständig innerhalb der Autorisierung liegen.
 
+Das Einzige, was der Wächter nicht prüfen kann, ist `set_target`, denn dessen Argument
+*ist* der neue Scope. Dafür hat es ein eigenes Gate: Verengen ist frei, alles andere
+braucht jedes Mal deine Antwort, und `--auto-consent` deckt es nicht ab.
+
 **Freigabe-Gate.** Alles Aktive wird verweigert, solange du es in dieser Sitzung nicht
 freigibst. Die Freigabe wird außerhalb des Modells aufgelöst — der Agent kann sich nicht
 selbst freigeben — und in einem nicht-interaktiven Lauf lautet die Antwort immer nein.
@@ -76,7 +80,7 @@ Grenze weitermacht.
 
 Das ist der am stärksten getestete Teil der Codebasis: 77 Tests auf die Scope-Grenze in
 [`tests/test_scope.py`](tests/test_scope.py) und 13 auf das Freigabe-Gate in
-[`tests/test_consent.py`](tests/test_consent.py), von 693 insgesamt. Wenn du vor dem ersten
+[`tests/test_consent.py`](tests/test_consent.py), von 725 insgesamt. Wenn du vor dem ersten
 Einsatz gegen ein Netzwerk nur eine Sache lesen willst, lies diese.
 
 Vorgesehener Einsatz:

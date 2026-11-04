@@ -487,7 +487,8 @@ class ReplSession:
             a = arg.lower()
             if a in ("on", "yes", "true"):
                 self.ctx.auto_consent = True
-                self.tui.log("[yellow]auto-consent ON — high-impact actions auto-approved. "
+                self.tui.log("[yellow]auto-consent ON — high-impact actions inside the scope are "
+                             "auto-approved. A scope change still asks you. "
                              "Authorized targets only.[/yellow]")
             elif a in ("off", "no", "false"):
                 self.ctx.auto_consent = False
