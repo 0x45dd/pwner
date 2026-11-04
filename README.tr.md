@@ -69,7 +69,7 @@ böylece ajan sınırı aştığını öğrenir ve sınırın içinde devam eder
 
 Kod tabanında en çok test edilen kısım bunlar: scope sınırında
 [`tests/test_scope.py`](tests/test_scope.py) içinde 77 test, onay kapısında
-[`tests/test_consent.py`](tests/test_consent.py) içinde 13 test — toplam 594 testin içinden.
+[`tests/test_consent.py`](tests/test_consent.py) içinde 13 test — toplam 626 testin içinden.
 Bunu bir ağa doğrultmadan önce tek bir şey okuyacaksan, onları oku.
 
 Kullanım amacı:
@@ -129,7 +129,8 @@ pwner
 
 İlk çalıştırma bir kez provider ve API key sorar, bunları `~/.config/pwner/config.json`
 dosyasına kaydeder (yalnızca sahibi okuyabilir). Sonraki her çalıştırma seni doğrudan
-oturuma düşürür. Sonra değiştirmek için `pwner setup`.
+oturuma düşürür. Sonra değiştirmek için `pwner --pick` (provider/model menüsü), `pwner setup` (baştan
+tüm sorular) ya da çalışan bir oturumun içinden `/model` ve `/provider`.
 
 ```bash
 pwner chat 10.0.0.5          # oturum, hedef atanmış

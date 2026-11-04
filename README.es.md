@@ -75,7 +75,7 @@ la herramienta, así que el agente aprende que se excedió y continúa dentro de
 
 Esta es la parte del código con más pruebas: 77 pruebas sobre el límite de alcance en
 [`tests/test_scope.py`](tests/test_scope.py) y 13 sobre la puerta de consentimiento en
-[`tests/test_consent.py`](tests/test_consent.py), de 594 en total. Si vas a leer una sola
+[`tests/test_consent.py`](tests/test_consent.py), de 626 en total. Si vas a leer una sola
 cosa antes de apuntar esto a una red, lee esas.
 
 Uso previsto:
@@ -135,7 +135,8 @@ pwner
 
 La primera ejecución pide un proveedor y una API key una sola vez, y los guarda en
 `~/.config/pwner/config.json` (solo lectura para el propietario). Cada ejecución posterior
-te deja directamente en una sesión. Cámbialo después con `pwner setup`.
+te deja directamente en una sesión. Cámbialo después con `pwner --pick` (menú de proveedor/modelo), con `pwner setup`
+(todas las preguntas) o con `/model` y `/provider` dentro de una sesión en marcha.
 
 ```bash
 pwner chat 10.0.0.5          # sesión, objetivo fijado

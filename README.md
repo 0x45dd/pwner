@@ -100,7 +100,7 @@ the answer is always no.
 
 These two are the part of the codebase under the most test: 77 tests on the scope boundary
 in [`tests/test_scope.py`](tests/test_scope.py) and 13 on the consent gate in
-[`tests/test_consent.py`](tests/test_consent.py), out of 594 overall. If you are going to
+[`tests/test_consent.py`](tests/test_consent.py), out of 626 overall. If you are going to
 read one thing before pointing this at a network, read those.
 
 Intended use:
@@ -206,12 +206,14 @@ pwner
 
 The first run asks for a provider and an API key once and saves them to
 `~/.config/pwner/config.json` (owner-only). Every run after that drops you straight into a
-session. Change it later with `pwner setup`.
+session. Change it later with `pwner --pick` for a provider/model menu, `pwner setup` for the
+full prompts, or `/model` and `/provider` from inside a running session.
 
 ```bash
 pwner chat 10.0.0.5          # session, target set
 pwner 10.0.0.0/24 --no-ai    # sweep, no model
 pwner doctor                 # tool status
+pwner --pick                 # choose a provider/model, then open a session
 ```
 
 In a session you talk to the agent and steer it while it works; `/help` lists the commands,

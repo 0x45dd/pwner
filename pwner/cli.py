@@ -44,6 +44,11 @@ def _parser() -> argparse.ArgumentParser:
         prog="pwner", description="Autonomous agentic NETWORK penetration-testing tool. "
         "Authorized use only — never scan hosts you don't own or have written permission to test.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="choosing a model:\n"
+               "  pwner                 open a session with the saved provider/model\n"
+               "  pwner --pick          choose a provider/model first, then open a session\n"
+               "  pwner setup           full setup again (provider, key, target)\n"
+               "  /model  ·  /provider  change it from inside a running session\n",
     )
     p.add_argument("--version", action="version", version=f"pwner {__version__}")
     sub = p.add_subparsers(dest="command")
@@ -167,6 +172,16 @@ def _print_findings(findings: list[dict]) -> None:
             print(f"    fix: {f['remediation'][:300]}")
 
 
+def _effective_provider(args: argparse.Namespace) -> str:
+    """The provider name actually in force: the flag if given, else whatever was saved.
+
+    resolve_config returns the key/base/model triple but not the name, and the name is
+    what a person recognises in the status line.
+    """
+    from . import config as pwner_config
+    return str(getattr(args, "provider", None) or pwner_config.load().get("provider") or "")
+
+
 async def _run_chat(args: argparse.Namespace) -> int:
     """Open the OpenCode-style interactive agent session (persistent chat REPL)."""
     from .repl import ReplSession
@@ -205,7 +220,12 @@ async def _run_chat(args: argparse.Namespace) -> int:
             if model:
                 try:
                     client = LLMClient(key, base, model)
-                    tui.log(f"[dim]model={model} · provider base={base}[/dim]")
+                    # Name the provider and the way out of it: without this you cannot
+                    # tell which model answered you, and changing it used to mean
+                    # quitting and running the setup wizard again.
+                    tui.log(f"[dim]model [cyan]{model}[/cyan] via "
+                            f"[cyan]{_effective_provider(args) or base}[/cyan] · "
+                            f"/model to change[/dim]")
                 except AIUnavailable as e:
                     tui.log(f"[yellow]{e}[/yellow]")
         else:
@@ -213,7 +233,8 @@ async def _run_chat(args: argparse.Namespace) -> int:
                     "set a key (restart with --api-key, or run `pwner` to configure) for the chat agent.[/yellow]")
 
     session = ReplSession(ctx, client, tui, max_steps=(getattr(args, "max_steps", 0) or None),
-                          instructions=getattr(args, "instructions", ""))
+                          instructions=getattr(args, "instructions", ""),
+                          provider=_effective_provider(args))
     return await session.loop()
 
 
@@ -370,12 +391,50 @@ async def _run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _is_configured(cfg: dict) -> bool:
+    """True when a saved config is usable without asking anything.
+
+    A key is not what makes a config usable: a server on your own machine or network
+    needs none, which is how Ollama, Lemonade and llama.cpp normally run. Gating on
+    api_key alone sent every local-model user back through the setup wizard on every
+    single launch, with their settings already saved and working.
+    """
+    from .llm import LOCAL_PROVIDERS, is_local_endpoint
+    if cfg.get("api_key"):
+        return True
+    if str(cfg.get("provider") or "") in LOCAL_PROVIDERS:
+        return True
+    base = str(cfg.get("base_url") or "")
+    return bool(base) and is_local_endpoint(base)
+
+
+def _open_session(settings: dict, target: str = "") -> int:
+    """Open the chat session with explicit provider settings."""
+    argv = ["chat"]
+    if target:
+        argv.append(target)
+    if settings.get("provider"):
+        argv += ["--provider", settings["provider"]]
+    if settings.get("api_key"):
+        argv += ["--api-key", settings["api_key"]]
+    if settings.get("base_url"):
+        argv += ["--base-url", settings["base_url"]]
+    if settings.get("model"):
+        argv += ["--model", settings["model"]]
+    args = _parser().parse_args(argv)
+    try:
+        return asyncio.run(_run(args))
+    except KeyboardInterrupt:
+        print("\n[!] interrupted")
+        return 130
+
+
 def _launch_default() -> int:
-    """`pwner` with no args in a terminal: run the one-time setup wizard the FIRST
-    time (no saved key), then on every later run skip straight into the session using
-    the saved provider/key — ask once, never again."""
+    """`pwner` with no args in a terminal: run the setup wizard the FIRST time, then on
+    every later run skip straight into the session using the saved settings. Change them
+    later with `pwner --pick`, `pwner setup`, or /model inside the session."""
     from . import config as pwner_config
-    if pwner_config.load().get("api_key"):
+    if _is_configured(pwner_config.load()):
         # already configured — no questions, straight into the interactive session
         args = _parser().parse_args(["chat"])  # provider/key resolve from saved config
         try:
@@ -386,17 +445,28 @@ def _launch_default() -> int:
     return _run_wizard()
 
 
-def _run_wizard() -> int:
-    """One-time interactive setup: provider + API key (saved), then open the session.
-    Re-run any time with `pwner setup`."""
-    from . import config as pwner_config
+def _prompt_provider(saved: dict) -> dict:
+    """Ask for provider, base URL, model and key, and return the chosen settings.
+
+    Shared by the first-run wizard, `pwner setup` and `pwner --pick` so the three cannot
+    drift apart. Prints a numbered list with the saved provider first, so Enter keeps
+    whatever you already use.
+    """
     from .llm import LOCAL_PROVIDERS, PRESETS
-    saved = pwner_config.load()
-    print(_BANNER)
-    print("Welcome to pwner — one-time setup (re-run later with `pwner setup`).\n")
-    provider = input(f"Provider [{'/'.join(PRESETS)}] "
-                     f"(default {saved.get('provider', 'openai')}): ").strip().lower() \
-               or saved.get("provider", "openai")
+    saved_provider = str(saved.get("provider") or "")
+    names = list(PRESETS)
+    if saved_provider in names:
+        names.remove(saved_provider)
+        names.insert(0, saved_provider)
+
+    print("Provider:")
+    for i, name in enumerate(names, 1):
+        print(f"  {i}. {name}" + ("  (saved)" if name == saved_provider else ""))
+    raw = input(f"pick [number or name, Enter={names[0]}]: ").strip().lower()
+    if raw.isdigit() and 1 <= int(raw) <= len(names):
+        provider = names[int(raw) - 1]
+    else:
+        provider = raw or names[0]
 
     local = provider in LOCAL_PROVIDERS
     preset = PRESETS.get(provider, {})
@@ -411,7 +481,7 @@ def _run_wizard() -> int:
         found = asyncio.run(discover_models(base_url))
         if found:
             for i, name in enumerate(found[:12], 1):
-                print(f"    {i}. {name}")
+                print(f"    {i}. {name}" + ("  (saved)" if name == saved.get("model") else ""))
             pick = input(f"Model [number or name] (default {found[0]}): ").strip()
             model = found[int(pick) - 1] if pick.isdigit() and 1 <= int(pick) <= len(found) \
                 else (pick or found[0])
@@ -421,38 +491,63 @@ def _run_wizard() -> int:
                 .strip() or str(saved.get("model") or preset.get("model") or "")
 
     saved_key = saved.get("api_key", "")
+    saved_for = str(saved.get("provider") or "")
     if local and is_local_endpoint(base_url):
         hint = "(optional — most local servers have none, Enter to skip)"
+    elif saved_key and saved_for and saved_for != provider:
+        # The saved key belongs to whoever it was saved under. Labelling it "(saved)"
+        # while switching provider is how you end up sending an OpenAI key to Anthropic
+        # and reading a 401 as "the tool is broken".
+        hint = f"(Enter reuses the key saved for {saved_for} — type a new one if that is wrong)"
+    elif saved_key:
+        hint = "(saved)"
     else:
-        hint = "(saved)" if saved_key else "(none — Enter to run deterministic)"
+        hint = "(none — Enter to run deterministic)"
     api_key = input(f"API key {hint}: ").strip() or (saved_key if not local else "")
-    target = input("Target (host / IP / CIDR / domain — optional, set later with /target): ").strip()
+    return {"provider": provider, "api_key": api_key,
+            "base_url": base_url, "model": model, "local": local}
 
-    if api_key or local:
-        save_yn = input("Save settings to ~/.config/pwner/config.json? [Y/n]: ").strip().lower()
-        if save_yn != "n":
-            entry = {"provider": provider, "api_key": api_key}
-            if base_url:
-                entry["base_url"] = base_url
-            if model:
-                entry["model"] = model
-            pwner_config.save(entry)
-    argv = ["chat"]
-    if target:
-        argv.append(target)
-    argv += ["--provider", provider]
-    if api_key:
-        argv += ["--api-key", api_key]
-    if base_url:
-        argv += ["--base-url", base_url]
-    if model:
-        argv += ["--model", model]
-    args = _parser().parse_args(argv)
-    try:
-        return asyncio.run(_run(args))
-    except KeyboardInterrupt:
-        print("\n[!] interrupted")
-        return 130
+
+def _maybe_save(settings: dict) -> None:
+    """Offer to persist the settings. Nothing to save when there is neither a key nor a
+    local endpoint, because then there is nothing the next run could reuse."""
+    from . import config as pwner_config
+    if not (settings.get("api_key") or settings.get("local")):
+        return
+    if input("Save settings to ~/.config/pwner/config.json? [Y/n]: ").strip().lower() == "n":
+        return
+    entry = {"provider": settings["provider"], "api_key": settings["api_key"]}
+    if settings.get("base_url"):
+        entry["base_url"] = settings["base_url"]
+    if settings.get("model"):
+        entry["model"] = settings["model"]
+    pwner_config.save(entry)
+
+
+def _run_wizard() -> int:
+    """One-time interactive setup: provider + API key (saved), then open the session.
+    Re-run any time with `pwner setup`."""
+    from . import config as pwner_config
+    saved = pwner_config.load()
+    print(_BANNER)
+    print("Welcome to pwner — one-time setup (re-run later with `pwner setup`).\n")
+    settings = _prompt_provider(saved)
+    target = input("Target (host / IP / CIDR / domain — optional, set later with /target): ").strip()
+    _maybe_save(settings)
+    return _open_session(settings, target)
+
+
+def _run_picker(target: str = "") -> int:
+    """`pwner --pick`: change provider/model, then open the session.
+
+    The difference from the wizard is only what it does not ask. No welcome text and no
+    target question, because this is for someone who already uses pwner and just wants a
+    different model today.
+    """
+    from . import config as pwner_config
+    settings = _prompt_provider(pwner_config.load())
+    _maybe_save(settings)
+    return _open_session(settings, target)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -464,8 +559,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if argv[0] in ("setup", "config", "reconfigure"):
         return _run_wizard()  # force the setup prompts again (change provider/key)
+    if argv[0] in ("--pick", "pick"):
+        # Change provider/model for this run without the full wizard. Handled before
+        # argparse because the point is that the default launch stays instant: the menu
+        # is something you ask for, not something every start pays for.
+        return _run_picker(argv[1] if len(argv) > 1 else "")
     known = {"scan", "chat", "ports", "vuln", "dns", "pci", "doctor",
-             "--version", "-h", "--help"}
+             "--version", "-h", "--help", "--pick"}
     if argv[0] not in known and not argv[0].startswith("-"):
         argv = ["scan", *argv]  # `pwner <target>` == `pwner scan <target>`
     args = _parser().parse_args(argv)

@@ -15,7 +15,15 @@ from rich.markup import escape
 
 from . import tools
 from .agent import _emit_call, _emit_step, _emit_thought, run_deterministic
-from .llm import AIUnavailable, LLMClient, LLMError
+from .llm import (
+    LOCAL_PROVIDERS,
+    PRESETS,
+    AIUnavailable,
+    LLMClient,
+    LLMError,
+    discover_models,
+    is_local_endpoint,
+)
 from .prompts import SYSTEM
 from .tools import ScanContext
 
@@ -32,6 +40,8 @@ _PHASE = {
 _COMMANDS: dict[str, str] = {
     "/scan": "deterministic suite (no LLM) on the target",
     "/target": "set / replace the authorized target",
+    "/model": "show or switch the model on the current provider",
+    "/provider": "show or switch the AI provider",
     "/findings": "list findings reported so far",
     "/topology": "print the discovered network map",
     "/consent": "toggle auto-approve for high-impact actions (on|off)",
@@ -48,6 +58,8 @@ HELP = r"""[bold]pwner[/bold] — talk to the agent, or use a /command:
 
   [cyan]<message>[/cyan]            chat / steer the agent (e.g. "scan it", "go deeper on MySQL")
   [cyan]/target <t>[/cyan]          set / replace the authorized target (host · IP · CIDR · domain)
+  [cyan]/model \[n|name][/cyan]      show the models this provider serves, or switch to one
+  [cyan]/provider \[name][/cyan]     show the providers, or switch to one
   [cyan]/scan \[target][/cyan]       run the deterministic suite (no LLM) on the target
   [cyan]/findings[/cyan]            list the findings reported so far
   [cyan]/topology[/cyan]            print the discovered network map
@@ -63,14 +75,50 @@ HELP = r"""[bold]pwner[/bold] — talk to the agent, or use a /command:
 SPINNER_FRAMES = "⣾⣽⣻⢿⡿⣟⣯⣷"
 # slash commands allowed to run while a turn is in-flight (read-only / control)
 _BUSY_OK = {"/findings", "/topology", "/topo", "/map", "/help", "/h", "/?", "/consent", "/stop", "/cancel",
+            "/model", "/models", "/provider",
             "/dump", "/save", "/doctor", "/tools", "/deps"}
+
+
+def _provider_of(client: LLMClient | None) -> str:
+    """Best-effort preset name for a client, by matching its base URL.
+
+    The session is handed a built client rather than a provider name, and a custom
+    --base-url matches no preset at all, so this is a label for display and never a
+    decision input.
+    """
+    if client is None:
+        return ""
+    base = (getattr(client, "base_url", "") or "").rstrip("/")
+    for name, preset in PRESETS.items():
+        if str(preset.get("base_url", "")).rstrip("/") == base:
+            return name
+    return ""
+
+
+def _persist(**fields: str) -> bool:
+    """Merge `fields` into the saved config, keeping everything else in it.
+
+    load/update/save rather than save alone: the config file holds the API key too, and
+    writing only the changed keys would drop it. Best effort — a session that cannot
+    write to disk still works for the rest of its life, so this reports rather than
+    raises.
+    """
+    try:
+        from . import config as pwner_config
+        cfg = pwner_config.load()
+        cfg.update({k: v for k, v in fields.items() if v})
+        pwner_config.save(cfg)
+        return True
+    except OSError:
+        return False
 
 
 class ReplSession:
     """One persistent interactive agent session over a single ScanContext."""
 
     def __init__(self, ctx: ScanContext, client: LLMClient | None, tui,
-                 max_steps: int | None = None, instructions: str = ""):
+                 max_steps: int | None = None, instructions: str = "",
+                 provider: str = ""):
         self.ctx = ctx
         self.client = client            # None when no API key: /scan still works
         self.tui = tui
@@ -79,6 +127,7 @@ class ReplSession:
         self.dispatch = tools.build_dispatch(ctx)
         self.messages: list[dict] = []  # conversation history, built on first agent turn
         self.model = "deterministic" if client is None else getattr(client, "model", "?")
+        self.provider = provider or _provider_of(client)
         self._busy = False
         self._turn: asyncio.Task | None = None
         self.on_refresh = lambda: None  # host hook (TUI sets this to repaint its status)
@@ -294,6 +343,107 @@ class ReplSession:
             f.write(header + body + "\n")
         return os.path.abspath(path)
 
+    # ---- provider / model ---------------------------------------------------
+    async def _cmd_model(self, arg: str) -> None:
+        """Show the models this provider serves, or switch to one.
+
+        Switching used to mean leaving the session, running `pwner setup` and starting
+        over, which threw away the target, the findings and the conversation along with
+        the model. Here only the model name changes; everything else survives.
+        """
+        if self.client is None:
+            self.tui.log("[yellow]running without a model (--no-ai). Start a session with "
+                         "a provider to use the agent.[/yellow]")
+            return
+        found = await discover_models(self.client.base_url, self.client.api_key)
+        if not arg:
+            self.tui.log(f"provider: [cyan]{self.provider or '(custom)'}[/cyan] "
+                         f"[dim]{self.client.base_url}[/dim]")
+            self.tui.log(f"model: [cyan]{self.client.model}[/cyan]")
+            if found:
+                for i, name in enumerate(found[:20], 1):
+                    mark = " [green](current)[/green]" if name == self.client.model else ""
+                    self.tui.log(f"  {i}. {escape(name)}{mark}")
+                self.tui.log("[dim]switch with `/model <number|name>`[/dim]")
+            else:
+                self.tui.log(f"[dim]{self.client.base_url} did not answer /models — "
+                             f"`/model <name>` still works if you know the name.[/dim]")
+            return
+        if self.busy:
+            self.tui.log("[yellow]a turn is running — /stop it first, or wait.[/yellow]")
+            return
+        name = arg
+        if arg.isdigit() and found and 1 <= int(arg) <= len(found):
+            name = found[int(arg) - 1]
+        elif found and name not in found:
+            self.tui.log(f"[yellow]{escape(name)} is not on that server. "
+                         f"`/model` lists what is.[/yellow]")
+            return
+        self.client.model = name
+        self.model = name
+        saved = _persist(model=name)
+        self.tui.log(f"[cyan]model → {escape(name)}[/cyan]"
+                     + ("" if saved else " [dim](not saved: config not writable)[/dim]"))
+        self._refresh()
+
+    async def _cmd_provider(self, arg: str) -> None:
+        """Show the providers, or switch to one."""
+        if not arg:
+            here = self.client.base_url if self.client else ""
+            self.tui.log(f"provider: [cyan]{self.provider or '(custom)'}[/cyan] "
+                         f"[dim]{here}[/dim]")
+            for name in PRESETS:
+                tag = " [green](current)[/green]" if name == self.provider else ""
+                local = " [dim]local, no key needed[/dim]" if name in LOCAL_PROVIDERS else ""
+                self.tui.log(f"  {name}{tag}{local}")
+            self.tui.log("[dim]switch with `/provider <name>`; `pwner --pick` also asks "
+                         "for a key and base URL[/dim]")
+            return
+        if self.busy:
+            self.tui.log("[yellow]a turn is running — /stop it first, or wait.[/yellow]")
+            return
+        name = arg.lower()
+        if name not in PRESETS:
+            self.tui.log(f"[yellow]unknown provider {escape(name)}. "
+                         f"known: {', '.join(PRESETS)}[/yellow]")
+            return
+        from . import config as pwner_config
+        saved = pwner_config.load()
+        preset = PRESETS[name]
+        base = str(preset.get("base_url") or "")
+        local = name in LOCAL_PROVIDERS
+        # A saved key belongs to whichever provider it was saved under. Carrying it to a
+        # different hosted provider is the most likely way this goes wrong, so it is
+        # carried (the operator may well have one key for several) but said out loud.
+        key = "" if local else str(saved.get("api_key") or "")
+        reused_from = str(saved.get("provider") or "")
+        model = str(preset.get("model") or "")
+        if local or is_local_endpoint(base):
+            found = await discover_models(base, key)
+            if found:
+                model = found[0]
+            elif not model:
+                self.tui.log(f"[yellow]{base} did not answer /models — is the server "
+                             f"running? Provider not changed.[/yellow]")
+                return
+        try:
+            client = LLMClient(key, base, model)
+        except AIUnavailable as e:
+            self.tui.log(f"[yellow]{e} for {name}. Set PWNER_API_KEY and restart, or run "
+                         f"`pwner --pick`. Provider not changed.[/yellow]")
+            return
+        self.client = client
+        self.provider = name
+        self.model = model
+        persisted = _persist(provider=name, base_url=base, model=model)
+        self.tui.log(f"[cyan]provider → {name}[/cyan] [dim]{base}[/dim]")
+        self.tui.log(f"[cyan]model → {escape(model)}[/cyan]"
+                     + ("" if persisted else " [dim](not saved: config not writable)[/dim]"))
+        if key and reused_from and reused_from != name:
+            self.tui.log(f"[yellow]reusing the API key saved for {reused_from}. If it is not "
+                         f"valid for {name} the first request will fail with 401.[/yellow]")
+        self._refresh()
+
     async def _command(self, line: str) -> bool:
         """Handle a /command. Returns True if the session should exit."""
         parts = line.split(maxsplit=1)
@@ -313,6 +463,10 @@ class ReplSession:
                                           "content": f"[OPERATOR] The authorized target is now: {arg}"})
             else:
                 self.tui.log(f"target: [cyan]{self.ctx.target or '(none)'}[/cyan]")
+        elif cmd in ("/model", "/models"):
+            await self._cmd_model(arg)
+        elif cmd == "/provider":
+            await self._cmd_provider(arg)
         elif cmd == "/scan":
             target = arg or self.ctx.target
             if not target:

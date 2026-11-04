@@ -69,7 +69,7 @@ hydra など）、確認された検出結果を深刻度・証跡・修正方�
 
 ここはコードベースの中で最もテストが厚い部分です。スコープ境界に
 [`tests/test_scope.py`](tests/test_scope.py) の 77 件、承認ゲートに
-[`tests/test_consent.py`](tests/test_consent.py) の 13 件、全体 594 件のうちの内訳です。
+[`tests/test_consent.py`](tests/test_consent.py) の 13 件、全体 626 件のうちの内訳です。
 これをネットワークに向ける前に 1 つだけ読むなら、この 2 つを読んでください。
 
 想定している用途:
@@ -129,7 +129,8 @@ pwner
 
 最初の起動でプロバイダと APIキーを一度だけ尋ね、`~/.config/pwner/config.json` に保存します
 （所有者のみ読み取り可）。以降の起動では、そのままセッションに入ります。あとから変更するには
-`pwner setup` を使います。
+`pwner --pick`（プロバイダ/モデルの一覧から選ぶ）、`pwner setup`（最初からすべて聞く）、
+あるいは実行中のセッション内で `/model` と `/provider` を使います。
 
 ```bash
 pwner chat 10.0.0.5          # セッション、対象を設定済み

@@ -76,7 +76,7 @@ Grenze weitermacht.
 
 Das ist der am stärksten getestete Teil der Codebasis: 77 Tests auf die Scope-Grenze in
 [`tests/test_scope.py`](tests/test_scope.py) und 13 auf das Freigabe-Gate in
-[`tests/test_consent.py`](tests/test_consent.py), von 594 insgesamt. Wenn du vor dem ersten
+[`tests/test_consent.py`](tests/test_consent.py), von 626 insgesamt. Wenn du vor dem ersten
 Einsatz gegen ein Netzwerk nur eine Sache lesen willst, lies diese.
 
 Vorgesehener Einsatz:
@@ -137,7 +137,8 @@ pwner
 
 Der erste Start fragt einmal nach Provider und API-Key und speichert beides in
 `~/.config/pwner/config.json` (nur für den Eigentümer lesbar). Jeder weitere Start setzt
-dich direkt in eine Sitzung. Später änderbar mit `pwner setup`.
+dich direkt in eine Sitzung. Später änderbar mit `pwner --pick` (Provider/Modell-Menü), mit `pwner setup` (alle
+Fragen) oder mit `/model` und `/provider` in einer laufenden Sitzung.
 
 ```bash
 pwner chat 10.0.0.5          # Sitzung, Ziel gesetzt
