@@ -157,5 +157,6 @@ from .web import (  # noqa: F401
     content_discovery,
     http_download,
     http_probe,
+    summarise_probes,
     web_request,
 )

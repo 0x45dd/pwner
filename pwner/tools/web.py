@@ -147,8 +147,74 @@ _COMMON_PATHS = [
 ]
 
 
+#: a signature seen on at least this many paths, and this share of them, is the server
+#: answering everything the same way rather than that many real endpoints existing.
+_CATCH_ALL_MIN_PATHS = 8
+_CATCH_ALL_SHARE = 0.5
+#: how many example paths to carry for a signature that is only summarised
+_SAMPLES = 4
+
+
+def summarise_probes(found: list[dict], tested: int) -> dict:
+    """Collapse probe hits by response signature, and name a catch-all when we see one.
+
+    Two problems, one cause. A server that answers every path with the same page defeats
+    the 404 filter above, so every probed path becomes a "hit": the model is handed
+    hundreds of near-identical JSON objects that are both wrong and, repeated per host
+    and port, large enough to exhaust the context window. Grouping on
+    (status, length, redirect) turns that into one line and labels it for what it is.
+
+    Pure function on purpose, so the behaviour is testable without a server."""
+    groups: dict[tuple, list[str]] = {}
+    for hit in found:
+        key = (hit["status"], hit["len"], hit.get("redirect", ""))
+        groups.setdefault(key, []).append(hit["path"])
+
+    catch_all = None
+    for (status, length, redirect), hit_paths in groups.items():
+        if (len(hit_paths) >= _CATCH_ALL_MIN_PATHS
+                and tested and len(hit_paths) / tested >= _CATCH_ALL_SHARE
+                and 200 <= status < 400):
+            catch_all = {
+                "status": status, "len": length, "redirect": redirect,
+                "paths": len(hit_paths),
+                "note": (f"{len(hit_paths)} of {tested} probed paths returned the identical "
+                         f"response (status {status}, {length} bytes). The server almost "
+                         f"certainly serves the same page for everything, so none of these "
+                         f"is evidence that the path exists. Confirm one with web_request "
+                         f"and compare it against a path you invent."),
+            }
+            break
+
+    summary, listed = [], 0
+    for (status, length, redirect), hit_paths in sorted(
+            groups.items(), key=lambda kv: (-len(kv[1]), kv[0][0])):
+        row: dict = {"status": status, "len": length, "paths": len(hit_paths)}
+        if redirect:
+            row["redirect"] = redirect
+        # List paths while a signature is still rare enough to mean something, and
+        # always keep a few samples so the model can follow up on the rest.
+        if len(hit_paths) <= _SAMPLES:
+            row["examples"] = hit_paths
+            listed += len(hit_paths)
+        else:
+            row["examples"] = hit_paths[:_SAMPLES]
+            row["more"] = len(hit_paths) - _SAMPLES
+        summary.append(row)
+
+    out: dict = {"tested": tested, "distinct_responses": len(groups), "responses": summary}
+    if catch_all:
+        out["catch_all"] = catch_all
+    else:
+        # Without a catch-all the hit list is small, so hand it over in full.
+        out["found"] = found
+    return out
+
+
 @tool("Map a web app's hidden paths/endpoints: probes a built-in list of common "
-      "paths (+ any you add) and returns which exist (non-404) with status/size. Run this early on any web service.",
+      "paths (+ any you add) and returns which exist (non-404), grouped by response "
+      "signature. A server that answers everything the same way is reported as a "
+      "catch-all instead of as hundreds of findings. Run this early on any web service.",
       {"host": {"type": "string"}, "port": {"type": "integer"},
        "paths": {"type": "array", "items": {"type": "string"},
        "description": "extra paths to also try, e.g. ['/api/users','/v2/login']"}},
@@ -182,7 +248,7 @@ async def content_discovery(ctx: ScanContext, args: dict) -> dict:
             return {"path": p, "status": r.status_code, "len": len(r.content), "redirect": loc}
         results = await asyncio.gather(*[probe(p) for p in paths])
     found = sorted((x for x in results if x), key=lambda x: (x["status"], x["path"]))
-    return {"base": base, "tested": len(paths), "found": found}
+    return {"base": base, **summarise_probes(found, len(paths))}
 
 
 @tool("Send a CUSTOM HTTP request (any method/path/headers/body/params) and get the full "

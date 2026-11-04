@@ -13,6 +13,7 @@ import ipaddress
 import json
 import os
 import random
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlparse
@@ -27,6 +28,49 @@ class AIUnavailable(RuntimeError):
 
 class LLMError(RuntimeError):
     """A transient or permanent provider error the caller should surface."""
+
+
+class ContextOverflow(LLMError):
+    """The prompt no longer fits the model's context window.
+
+    Separated from LLMError because it is the one 400 that is recoverable: the backend
+    hands back both numbers needed to act (n_ctx, n_prompt_tokens), and a smaller prompt
+    will succeed. Resending the same prompt never will, so the loop must shrink it."""
+
+    def __init__(self, message: str, n_ctx: int = 0, n_prompt: int = 0):
+        super().__init__(message)
+        self.n_ctx = n_ctx
+        self.n_prompt = n_prompt
+
+
+# Backends word this differently; llama.cpp/Lemonade use the structured form below,
+# OpenAI returns code "context_length_exceeded", others only say it in prose.
+_OVERFLOW_MARKERS = ("context_length_exceeded", "exceed_context_size",
+                     "maximum context length", "context size", "too many tokens",
+                     "reduce the length of the messages")
+
+
+def _as_overflow(status: int, body: str) -> ContextOverflow | None:
+    """Recognise a context-window rejection and pull the numbers out of it."""
+    if status != 400:
+        return None
+    low = body.lower()
+    if not any(m in low for m in _OVERFLOW_MARKERS):
+        return None
+    n_ctx = n_prompt = 0
+    for key, attr in (("n_ctx", "ctx"), ("n_prompt_tokens", "prompt")):
+        m = re.search(rf'"{key}"\s*:\s*(\d+)', body)
+        if m:
+            if attr == "ctx":
+                n_ctx = int(m.group(1))
+            else:
+                n_prompt = int(m.group(1))
+    if not (n_ctx and n_prompt):
+        # prose form: "request (67147 tokens) exceeds the available context size (65536 tokens)"
+        nums = [int(n) for n in re.findall(r"\b(\d{3,7})\b(?=\s*tokens)", body)]
+        if len(nums) >= 2:
+            n_prompt, n_ctx = max(nums), min(nums)
+    return ContextOverflow(body[:300], n_ctx=n_ctx, n_prompt=n_prompt)
 
 
 PRESETS: dict[str, dict[str, str]] = {
@@ -87,6 +131,52 @@ def resolve_config(provider: str, api_key: str, base_url: str, model: str) -> tu
            or saved.get("api_key", "")
            or "").strip()
     return key, base, mod
+
+
+def transcript_size(messages: list[dict]) -> int:
+    """Rough size of a transcript, in characters. A proxy for tokens: the loop only needs
+    to know that a compaction actually made the prompt smaller, not by how many tokens."""
+    total = 0
+    for m in messages:
+        c = m.get("content")
+        total += len(c) if isinstance(c, str) else len(json.dumps(c or ""))
+        for tc in m.get("tool_calls") or []:
+            total += len(json.dumps(tc))
+    return total
+
+
+def compact_messages(messages: list[dict], keep_recent: int = 6,
+                     max_tool_chars: int = 600) -> list[dict]:
+    """Shrink a transcript that no longer fits, oldest tool output first.
+
+    What a run cannot lose is the task and what just happened, so the system message, the
+    first user message and the last `keep_recent` entries are left untouched. Everything
+    older is where the bulk sits: tool results. Those get cut to a prefix with an explicit
+    marker, so the model can see that detail existed and ask for it again rather than
+    silently reasoning over a hole.
+
+    Returns a new list; the caller decides whether the result is small enough to use."""
+    if len(messages) <= keep_recent + 2:
+        return list(messages)
+
+    head = messages[:2]                     # system + the original task
+    tail = messages[len(messages) - keep_recent:]
+    middle = messages[2:len(messages) - keep_recent]
+
+    out = list(head)
+    for m in middle:
+        content = m.get("content")
+        if m.get("role") == "tool" and isinstance(content, str) and len(content) > max_tool_chars:
+            dropped = len(content) - max_tool_chars
+            trimmed = dict(m)
+            trimmed["content"] = (content[:max_tool_chars]
+                                  + f"\n[{dropped} characters dropped to fit the context window"
+                                    f" — run the tool again if you need the rest]")
+            out.append(trimmed)
+        else:
+            out.append(m)
+    out.extend(tail)
+    return out
 
 
 async def discover_models(base_url: str, api_key: str = "", timeout: float = 6.0) -> list[str]:
@@ -178,10 +268,13 @@ class LLMClient:
                 delay *= 2
                 continue
             if r.status_code >= 400:
-                body = r.text[:300]
+                body = r.text[:600]
                 if r.status_code in (401, 402, 403):
-                    raise AIUnavailable(f"auth/billing error {r.status_code}: {body}")
-                raise LLMError(f"LLM {r.status_code}: {body}")
+                    raise AIUnavailable(f"auth/billing error {r.status_code}: {body[:300]}")
+                overflow = _as_overflow(r.status_code, body)
+                if overflow is not None:
+                    raise overflow
+                raise LLMError(f"LLM {r.status_code}: {body[:300]}")
             return r.json()
         raise LLMError(f"LLM unavailable after retries: {last}")
 
@@ -327,7 +420,38 @@ class LLMClient:
             # since non-reasoning models (e.g. gpt-4o-mini) 400 on an unknown param.
             if reasoning_effort:
                 payload["reasoning_effort"] = reasoning_effort
-            data = await self._post(payload)
+            try:
+                data = await self._post(payload)
+            except ContextOverflow as overflow:
+                # Recoverable, but only if the prompt actually gets smaller. Compact in
+                # increasing steps and give up rather than resend something that cannot fit.
+                data = None
+                before = transcript_size(messages)
+                for keep, cap in ((6, 600), (4, 240), (2, 80)):
+                    shrunk = compact_messages(messages, keep_recent=keep, max_tool_chars=cap)
+                    after = transcript_size(shrunk)
+                    if after >= before:
+                        continue
+                    messages[:] = shrunk
+                    payload["messages"] = messages
+                    if on_thought is not None:
+                        pct = 100 * (before - after) // max(before, 1)
+                        over = (f" ({overflow.n_prompt} tokens against a {overflow.n_ctx} window)"
+                                if overflow.n_ctx else "")
+                        await on_thought(f"context full{over} — dropped {pct}% of the older tool "
+                                         f"output and retrying; ask again for any detail you need")
+                    try:
+                        data = await self._post(payload)
+                        break
+                    except ContextOverflow:
+                        before = after
+                        continue
+                if data is None:
+                    raise ContextOverflow(
+                        "the prompt will not fit this model's context window even after "
+                        "compaction. Start a new session, narrow the scope, or raise the "
+                        f"backend's context size. {overflow}",
+                        n_ctx=overflow.n_ctx, n_prompt=overflow.n_prompt) from overflow
             if on_usage is not None:
                 try:
                     on_usage(data.get("usage") or {})
