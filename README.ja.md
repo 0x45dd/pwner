@@ -45,7 +45,10 @@ hydra など）、確認された検出結果を深刻度・証跡・修正方�
   送信されません。
 - **モデルなしでも動きます。** `--no-ai` は、発見 → フィンガープリント → 検出のパイプライン
   全体を決定論的に実行します。APIキーは不要で、マシンから何も出ていきません。
-- **47 のツール。** nmap、HTTP、サービス別のプローブ、Active Directory、認証情報関連。
+- **PCI DSS セグメンテーションテスト。** `pwner pci` は対象外セグメントから CDE が分離
+  されているかを検証します（11.4.5/11.4.6）。決定論的なので、修正後に再実行すれば
+  11.4.4 が求める再テストになります。これ自体が準拠を与えるものではありません。
+- **49 のツール。** nmap、HTTP、サービス別のプローブ、Active Directory、認証情報関連。
   いずれも標準バイナリの薄いラッパーであり、再実装ではありません。
 
 ## 安全性のモデル
@@ -66,7 +69,7 @@ hydra など）、確認された検出結果を深刻度・証跡・修正方�
 
 ここはコードベースの中で最もテストが厚い部分です。スコープ境界に
 [`tests/test_scope.py`](tests/test_scope.py) の 77 件、承認ゲートに
-[`tests/test_consent.py`](tests/test_consent.py) の 13 件、全体 532 件のうちの内訳です。
+[`tests/test_consent.py`](tests/test_consent.py) の 13 件、全体 594 件のうちの内訳です。
 これをネットワークに向ける前に 1 つだけ読むなら、この 2 つを読んでください。
 
 想定している用途:
@@ -188,7 +191,7 @@ OS フィンガープリント、既知の問題の検出、そして同じ検�
 
 - [Docs](https://www.pwner.si/docs) — インストール、最初のセッション、全コマンドとフラグ
 - [Agent](https://www.pwner.si/agent) — ループの仕組みと、できること・できないこと
-- [Modules](https://www.pwner.si/modules) — 47 個のツールと、それぞれが何を動かすか
+- [Modules](https://www.pwner.si/modules) — 49 個のツールと、それぞれが何を動かすか
 - [Rules](https://www.pwner.si/rules) — スコープ、承認、責任ある利用
 - [Contributing](CONTRIBUTING.md) — 開発環境、tools パッケージ、ツールの追加方法
 - [Security](SECURITY.md) — pwner 自体の脆弱性の報告

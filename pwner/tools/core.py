@@ -273,6 +273,25 @@ class ScanContext:
         return nets
 
 
+def _source_ip_for(target: str) -> str:
+    """The local IP the OS uses to reach `target` — the interface facing it (tun0 on a VPN).
+
+    Lives here rather than in session.py because the PCI segmentation test needs the same
+    answer for a different reason: the vantage point a test was run from is evidence, and
+    an assessor asks for it.
+    """
+    host = (target or "").split(",")[0].split("/")[0].strip() or "8.8.8.8"
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((host, 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return "127.0.0.1"
+
+
 def _resolve_ips(host: str) -> list[str]:
     """Resolve a hostname/IP to a list of IP strings (best effort, no errors)."""
     host = host.strip().lower().rstrip(".")
@@ -320,8 +339,10 @@ def _require_scope(host: str, ctx: ScanContext) -> None:
 # tool, or one whose body forgets _require_scope, still cannot reach a host the
 # operator never authorized. `domain` is deliberately NOT here — in the AD tools it
 # is a Kerberos realm ("CORP.LOCAL"), not a host to send traffic to, and dns_enum
-# asks a public resolver about a name rather than touching the target.
-_SCOPED_ARG_NAMES = ("target", "targets", "host", "hosts", "dc_ip", "server", "ip")
+# asks a public resolver about a name rather than touching the target. `cde` is the PCI
+# segmentation test's target: the cardholder data environment it tries to reach, which the
+# operator has to have authorized like any other.
+_SCOPED_ARG_NAMES = ("target", "targets", "host", "hosts", "dc_ip", "server", "ip", "cde")
 
 
 @dataclass(frozen=True)

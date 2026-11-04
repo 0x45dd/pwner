@@ -88,6 +88,22 @@ def _parser() -> argparse.ArgumentParser:
     dns.add_argument("domain", help="domain to enumerate")
     dns.add_argument("--json", action="store_true")
 
+    pci = sub.add_parser(
+        "pci", help="PCI DSS 11.4.5/11.4.6 segmentation test (no agent, no model)",
+        description="Try to reach the CDE from wherever this is running and report whether "
+                    "the segmentation boundary holds. Run it from an OUT-OF-SCOPE segment. "
+                    "Deterministic, so re-running it after a fix is the 11.4.4 retest. "
+                    "Exit code: 0 isolated, 2 not isolated, 3 inconclusive.")
+    pci.add_argument("target", help="the CDE: host or CIDR that segmentation is supposed to "
+                                    "isolate (you MUST be authorized)")
+    pci.add_argument("--ports", default="",
+                     help="ports to try, e.g. '22,443,3306' or '1-1024' "
+                          "(default: a broad CDE set)")
+    pci.add_argument("--timeout", type=float, default=3.0,
+                     help="per-probe seconds (default 3)")
+    pci.add_argument("--json", action="store_true",
+                     help="emit JSON — this is the artifact to keep as evidence")
+
     doc = sub.add_parser("doctor", help="check which external tools are installed")
     doc.add_argument("--json", action="store_true", help="machine-readable status")
 
@@ -221,10 +237,15 @@ async def _run(args: argparse.Namespace) -> int:
                       range_cap=getattr(args, "range_cap", 4096),
                       nuclei_severity=getattr(args, "nuclei_severity", "low,medium,high,critical"),
                       operator_channel=channel)
-    print(_BANNER)
-    if interactive:
-        print("[i] live steering ON — type a message + Enter to steer the agent mid-run; "
-              "answer y/N at consent prompts.\n")
+    # --json means the caller is piping this somewhere, so stdout has to be nothing but
+    # the document. `pwner pci --json > evidence.json` is the PCI evidence artifact, and a
+    # banner in front of it makes the file unparseable.
+    quiet = getattr(args, "json", False)
+    if not quiet:
+        print(_BANNER)
+        if interactive:
+            print("[i] live steering ON — type a message + Enter to steer the agent mid-run; "
+                  "answer y/N at consent prompts.\n")
 
     if args.command == "ports":
         from . import tools
@@ -260,6 +281,42 @@ async def _run(args: argparse.Namespace) -> int:
                     for sc in p.get("scripts", []):
                         print(f"  [{p['port']}] {sc['id']}\n      {(sc['output'] or '').strip()[:600]}")
         return 0
+
+    if args.command == "pci":
+        from . import tools
+        try:
+            res = await tools.segmentation_test(ctx, {"cde": args.target,
+                                                      "ports": args.ports,
+                                                      "timeout": args.timeout})
+        except tools.ToolError as e:
+            print(f"[!] {e}")
+            return 1
+        if args.json:
+            print(json.dumps(res, indent=2))
+        else:
+            print(f"\n=== {res['requirement']} ===")
+            print(f"  CDE            {res['cde']}")
+            print(f"  vantage point  {res['vantage_point']}")
+            print(f"  tested at      {res['tested_at']}")
+            print(f"  coverage       {res['hosts_tested']} hosts x "
+                  f"{res['ports_tested']} ports = {res['probes']} probes "
+                  f"in {res['duration_s']}s")
+            print(f"\n  VERDICT  {res['verdict'].replace('_', ' ')}\n")
+            for label, key in (("reachable — isolation failed here", "reachable"),
+                               ("inconclusive — something answered", "inconclusive")):
+                rows = res.get(key) or []
+                if not rows:
+                    continue
+                print(f"  {label} ({res['counts'][key]}):")
+                for r in rows:
+                    print(f"    {r['host']}:{r['port']}  {r['state']}")
+                more = res.get(f"more_{key}")
+                if more:
+                    print(f"    ... and {more} more")
+                print()
+            if res.get("inconclusive_note"):
+                print(f"  note: {res['inconclusive_note']}\n")
+        return {"isolated": 0, "not_isolated": 2}.get(res["verdict"], 3)
 
     if args.command == "dns":
         from . import tools
@@ -407,7 +464,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if argv[0] in ("setup", "config", "reconfigure"):
         return _run_wizard()  # force the setup prompts again (change provider/key)
-    known = {"scan", "chat", "ports", "vuln", "dns", "doctor", "--version", "-h", "--help"}
+    known = {"scan", "chat", "ports", "vuln", "dns", "pci", "doctor",
+             "--version", "-h", "--help"}
     if argv[0] not in known and not argv[0].startswith("-"):
         argv = ["scan", *argv]  # `pwner <target>` == `pwner scan <target>`
     args = _parser().parse_args(argv)

@@ -44,7 +44,10 @@ Kendi modelinle çalışır, ya da hiç model olmadan.
   bir endpoint için API key gerekmez. Sen yapılandırmadan hiçbir yere hiçbir şey gitmez.
 - **Modelsiz de çalışır.** `--no-ai`, keşif → parmak izi → tespit hattının tamamını
   deterministik biçimde çalıştırır; API key yok, makineden hiçbir şey çıkmıyor.
-- **47 tool**: nmap, HTTP, servis bazlı problar, Active Directory ve kimlik bilgisi
+- **PCI DSS segmentasyon testi.** `pwner pci`, kapsam dışı bir segmentten CDE'nin izole
+  olup olmadığını sınar (11.4.5/11.4.6); deterministik olduğu için düzeltmeden sonra tekrar
+  koşmak 11.4.4'ün istediği retest olur. Tek başına uyumluluk sağlamaz.
+- **49 tool**: nmap, HTTP, servis bazlı problar, Active Directory ve kimlik bilgisi
   işleri. Her biri standart binary'nin ince bir sarmalayıcısı, yeniden yazımı değil.
 
 ## Güvenlik modeli
@@ -66,7 +69,7 @@ böylece ajan sınırı aştığını öğrenir ve sınırın içinde devam eder
 
 Kod tabanında en çok test edilen kısım bunlar: scope sınırında
 [`tests/test_scope.py`](tests/test_scope.py) içinde 77 test, onay kapısında
-[`tests/test_consent.py`](tests/test_consent.py) içinde 13 test — toplam 532 testin içinden.
+[`tests/test_consent.py`](tests/test_consent.py) içinde 13 test — toplam 594 testin içinden.
 Bunu bir ağa doğrultmadan önce tek bir şey okuyacaksan, onları oku.
 
 Kullanım amacı:
@@ -189,7 +192,7 @@ Tam komut ve yapılandırma referansı, ajan döngüsü, modül kataloğu ve kur
 
 - [Docs](https://www.pwner.si/docs) — kurulum, ilk oturum, her komut ve flag
 - [Agent](https://www.pwner.si/agent) — döngü nasıl çalışır, neyi yapabilir neyi yapamaz
-- [Modules](https://www.pwner.si/modules) — 47 tool ve her birinin neyi sürdüğü
+- [Modules](https://www.pwner.si/modules) — 49 tool ve her birinin neyi sürdüğü
 - [Rules](https://www.pwner.si/rules) — scope, onay, sorumlu kullanım
 - [Contributing](CONTRIBUTING.md) — geliştirme ortamı, tools paketi, tool ekleme
 - [Security](SECURITY.md) — pwner'ın kendisindeki bir zafiyeti bildirmek

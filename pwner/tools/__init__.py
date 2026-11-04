@@ -15,6 +15,7 @@ nothing else, so the dependency graph is a star with no cycles:
     web       scheme probing, endpoint discovery, raw HTTP requests
     net       DNS, banners, raw TCP, SNMP, FTP
     ad        Active Directory + credentialed execution (impacket/netexec/kerbrute/...)
+    pci       PCI DSS 11.4.5/11.4.6 segmentation test, 11.4.4 exposure retest
     session   reverse-shell listener, exfil channel, shell_exec
     target    operator phrase -> authorized scope
     report    findings, ledger, dependency status, the agent's brief
@@ -83,6 +84,7 @@ from .core import (  # noqa: F401
     _require_scope,
     _resolve_ips,
     _scan_creds,
+    _source_ip_for,
     _Tool,
     _which_any,
     build_dispatch,
@@ -118,6 +120,19 @@ from .nmap import (  # noqa: F401
     ssl_info,
     vuln_scan,
 )
+from .pci import (  # noqa: F401
+    DEFAULT_CDE_PORTS,
+    _file_reachable_findings,
+    _gate,
+    _probe,
+    _require_cde_scope,
+    classify_error,
+    parse_ports,
+    pci_retest,
+    segmentation_test,
+    segmentation_verdict,
+    summarise_segmentation,
+)
 from .report import (  # noqa: F401
     _env_note,
     brief,
@@ -134,7 +149,6 @@ from .session import (  # noqa: F401
     ExploitState,
     _b64_maybe,
     _exploit,
-    _source_ip_for,
     attacker_info,
     exfil,
     listener,

@@ -18,7 +18,7 @@ import pytest
 from pwner import tools
 
 PKG = pathlib.Path(tools.__file__).parent
-SUBMODULES = ["core", "nmap", "web", "net", "ad", "session", "target", "report"]
+SUBMODULES = ["core", "nmap", "web", "net", "ad", "pci", "session", "target", "report"]
 
 
 def sibling_imports(module: str) -> set[str]:
@@ -63,7 +63,7 @@ def test_every_tool_module_actually_registers_tools():
         by_module.setdefault(entry.fn.__module__.rsplit(".", 1)[-1], []).append(name)
     assert set(by_module) == set(SUBMODULES) - {"core"}, (
         f"tool-bearing modules changed: {sorted(by_module)}")
-    assert sum(len(v) for v in by_module.values()) == 47
+    assert sum(len(v) for v in by_module.values()) == 49
 
 
 def module_level_names(module: str) -> list[str]:

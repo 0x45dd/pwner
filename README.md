@@ -29,6 +29,7 @@
   <a href="#install">Install</a> &nbsp;·&nbsp;
   <a href="#first-run">First run</a> &nbsp;·&nbsp;
   <a href="#your-model">Your model</a> &nbsp;·&nbsp;
+  <a href="#pci-dss-segmentation-testing">PCI DSS</a> &nbsp;·&nbsp;
   <a href="#documentation">Documentation</a>
 </p>
 
@@ -62,7 +63,7 @@ It runs on your own model, or on no model at all.
   endpoint needs no API key. Nothing is sent anywhere until you configure one.
 - **Works with no model.** `--no-ai` runs the full discovery → fingerprint → detect pipeline
   deterministically, with no API key and nothing leaving the machine.
-- **47 tools** across nmap, HTTP, per-service probes, Active Directory and credential work,
+- **49 tools** across nmap, HTTP, per-service probes, Active Directory and credential work,
   each a thin wrapper over the standard binary rather than a reimplementation.
 
 ## Safety model
@@ -99,7 +100,7 @@ the answer is always no.
 
 These two are the part of the codebase under the most test: 77 tests on the scope boundary
 in [`tests/test_scope.py`](tests/test_scope.py) and 13 on the consent gate in
-[`tests/test_consent.py`](tests/test_consent.py), out of 532 overall. If you are going to
+[`tests/test_consent.py`](tests/test_consent.py), out of 594 overall. If you are going to
 read one thing before pointing this at a network, read those.
 
 Intended use:
@@ -261,6 +262,36 @@ air-gapped engagement, or when the data cannot leave the building.
 
 The active tools are the agent's; they need both a model and your consent.
 
+## PCI DSS segmentation testing
+
+Two of the things PCI DSS v4.0.1 asks for are pure network-layer work, and `pwner pci` does
+them with no model and no agent:
+
+```bash
+pwner pci 10.0.0.0/24                       # is the CDE isolated from here?
+pwner pci 10.0.0.0/24 --json > evidence.json
+```
+
+Run it from a segment that is **out of scope** for the CDE. It tries to reach the CDE and
+reports whether the boundary held — that is **11.4.5**, or **11.4.6** on the six-month cycle
+if you are a service provider. Because it is deterministic, re-running it after a fix is the
+retest **11.4.4** asks for, and the exit code makes that a gate: `0` isolated, `2` not
+isolated, `3` inconclusive.
+
+It is not asking what a port scan asks. A port scan wants to know what is listening; this
+wants to know whether a packet can get there at all, so a **closed** port that answers with a
+RST is a failure of isolation rather than a pass — something on the path replied. Whether that
+RST came from the host or from a firewall rejecting on its behalf cannot be told from a TCP
+connect, so that case is reported as `inconclusive` rather than guessed in either direction.
+Settle those from the segmentation control's own logs.
+
+> [!NOTE]
+> **This does not make anyone compliant.** 11.4.2 and 11.4.3 require a qualified tester with
+> organizational independence, 11.4.1 requires a documented methodology, and the quarterly
+> external scan in 11.3.2 has to come from an Approved Scanning Vendor. This is an instrument
+> a tester uses. What it contributes is the evidence an assessor asks for — when, from where,
+> against what, and what came back — attached to the result instead of reconstructed later.
+
 ## Documentation
 
 Full command and config reference, the agent loop, the module catalogue and the rules live at
@@ -268,7 +299,7 @@ Full command and config reference, the agent loop, the module catalogue and the 
 
 - [Docs](https://www.pwner.si/docs) — install, first session, every command and flag
 - [Agent](https://www.pwner.si/agent) — how the loop works and what it can and cannot do
-- [Modules](https://www.pwner.si/modules) — all 47 tools and what each one drives
+- [Modules](https://www.pwner.si/modules) — all 49 tools and what each one drives
 - [Rules](https://www.pwner.si/rules) — scope, consent, responsible use
 - [Contributing](CONTRIBUTING.md) — development setup, the tools package, adding a tool
 - [Security](SECURITY.md) — reporting a vulnerability in pwner itself

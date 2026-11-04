@@ -8,28 +8,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import random
-import socket
 
 from .core import (
     ScanContext,
     ToolError,
     _consent,
+    _source_ip_for,
     tool,
 )
-
-
-def _source_ip_for(target: str) -> str:
-    """The local IP the OS uses to reach `target` — the interface facing it (tun0 on a VPN)."""
-    host = (target or "").split(",")[0].split("/")[0].strip() or "8.8.8.8"
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            s.connect((host, 80))
-            return s.getsockname()[0]
-        finally:
-            s.close()
-    except OSError:
-        return "127.0.0.1"
 
 
 def _b64_maybe(s: str) -> str:
