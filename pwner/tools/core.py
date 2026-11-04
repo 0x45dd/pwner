@@ -31,6 +31,10 @@ HYDRA_BIN = os.environ.get("PWNER_HYDRA", "hydra")
 
 SNMPWALK_BIN = os.environ.get("PWNER_SNMPWALK", "snmpwalk")
 
+#: dirsearch: path/endpoint brute-forcing with real wordlists. Optional — content_discovery
+#: and web_crawl work without it, it just goes much wider.
+DIRSEARCH_BIN = os.environ.get("PWNER_DIRSEARCH", "dirsearch")
+
 
 def has_nuclei() -> bool:
     return shutil.which(NUCLEI_BIN) is not None
@@ -38,6 +42,10 @@ def has_nuclei() -> bool:
 
 def has_hydra() -> bool:
     return shutil.which(HYDRA_BIN) is not None
+
+
+def has_dirsearch() -> bool:
+    return bool(shutil.which(DIRSEARCH_BIN))
 
 
 # Small built-in credential list so brute-force works without an external wordlist.

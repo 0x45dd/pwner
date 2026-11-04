@@ -111,6 +111,7 @@ os_pkg snmpwalk       net-snmp   snmp      snmp       net-snmp   net-snmp-utils
 os_pkg hashcat        hashcat    hashcat   hashcat    hashcat    hashcat
 os_pkg nuclei         nuclei     -         nuclei     -          nuclei
 os_pkg searchsploit   exploitdb  -         exploitdb  exploitdb  -
+os_pkg dirsearch      -          dirsearch dirsearch  -          -
 
 # Kali packages the AD toolchain the other distros leave to pipx, and ships most of it
 # preinstalled. Taking it from apt here means the pipx block below finds the binaries
@@ -133,9 +134,10 @@ have_any impacket-GetNPUsers GetNPUsers.py            || need_pipx=1
 have_any certipy certipy-ad                           || need_pipx=1
 have_any bloodhound-python                            || need_pipx=1
 have_any netexec nxc crackmapexec                     || need_pipx=1
+have_any dirsearch                                    || need_pipx=1
 
 if [ "$need_pipx" = 0 ]; then
-    echo "  impacket, certipy, bloodhound-python and netexec are already installed — nothing to do"
+    echo "  impacket, certipy, bloodhound-python, netexec and dirsearch are already installed"
 elif ! have pipx; then
     echo "  pipx missing — installing it first"
     case "$PM" in
@@ -146,7 +148,7 @@ elif ! have pipx; then
 fi
 
 if [ "$need_pipx" = 0 ]; then
-    :   # the OS package manager already covered all four
+    :   # the OS package manager already covered all of them
 elif have pipx; then
     # netexec is NOT on PyPI; it has to come from the repository.
     pipx_install() {  # pipx_install <label> <spec> [probe-binary ...]
@@ -164,8 +166,9 @@ elif have pipx; then
     pipx_install certipy            certipy-ad          certipy certipy-ad
     pipx_install bloodhound-python  bloodhound
     pipx_install netexec            "git+https://github.com/Pennyw0rth/NetExec" netexec nxc crackmapexec
+    pipx_install dirsearch          dirsearch
 else
-    echo "  pipx unavailable — skipping impacket/certipy/bloodhound/netexec"
+    echo "  pipx unavailable — skipping impacket/certipy/bloodhound/netexec/dirsearch"
 fi
 
 # ── things with no package anywhere ──────────────────────────────────────────

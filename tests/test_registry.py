@@ -85,10 +85,10 @@ def test_a_new_tool_is_scope_guarded_without_opting_in(clean_registry):
     assert reached == [], "tool body ran despite an out-of-scope host"
 
 
-# ── invariants over the real 49 tools ────────────────────────────────────────
+# ── invariants over the real 52 tools ────────────────────────────────────────
 
 def test_registry_is_not_empty():
-    assert len(tools._REGISTRY) == 49
+    assert len(tools._REGISTRY) == 52
 
 
 @pytest.mark.parametrize("name", sorted(tools._REGISTRY))

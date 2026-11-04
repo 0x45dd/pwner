@@ -14,7 +14,7 @@ from pwner.tools import dependency_status
 from pwner.tools.report import _hint, _is_kali, _package_manager
 
 MANAGERS = ["brew", "apt", "kali", "pacman", "dnf"]
-TOOLS = ["nmap", "nuclei", "hydra", "snmpwalk", "hashcat", "searchsploit",
+TOOLS = ["nmap", "nuclei", "dirsearch", "hydra", "snmpwalk", "hashcat", "searchsploit",
          "impacket", "netexec", "certipy", "bloodhound-python", "kerbrute"]
 
 # Kali is its own ecosystem in the hint tables but drives the same binary as Debian, so

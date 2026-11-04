@@ -51,7 +51,7 @@ Funciona con tu propio modelo, o sin modelo alguno.
 - **Prueba de segmentación PCI DSS.** `pwner pci` comprueba si el CDE está aislado
   desde un segmento fuera de alcance (11.4.5/11.4.6) y, al ser determinista, repetirlo
   tras una corrección es el retest que pide 11.4.4. No otorga cumplimiento por sí solo.
-- **49 herramientas** entre nmap, HTTP, sondas por servicio, Active Directory y trabajo con
+- **52 herramientas** entre nmap, HTTP, sondas por servicio, Active Directory y trabajo con
   credenciales, cada una un envoltorio fino sobre el binario estándar, no una
   reimplementación.
 
@@ -75,7 +75,7 @@ la herramienta, así que el agente aprende que se excedió y continúa dentro de
 
 Esta es la parte del código con más pruebas: 77 pruebas sobre el límite de alcance en
 [`tests/test_scope.py`](tests/test_scope.py) y 13 sobre la puerta de consentimiento en
-[`tests/test_consent.py`](tests/test_consent.py), de 626 en total. Si vas a leer una sola
+[`tests/test_consent.py`](tests/test_consent.py), de 693 en total. Si vas a leer una sola
 cosa antes de apuntar esto a una red, lee esas.
 
 Uso previsto:
@@ -202,7 +202,7 @@ módulos y las reglas están en **[pwner.si](https://www.pwner.si/)**, solo en i
 
 - [Docs](https://www.pwner.si/docs) — instalación, primera sesión, cada comando y flag
 - [Agent](https://www.pwner.si/agent) — cómo funciona el bucle y qué puede y no puede hacer
-- [Modules](https://www.pwner.si/modules) — las 49 herramientas y qué usa cada una
+- [Modules](https://www.pwner.si/modules) — las 52 herramientas y qué usa cada una
 - [Rules](https://www.pwner.si/rules) — alcance, consentimiento, uso responsable
 - [Contributing](CONTRIBUTING.md) — entorno de desarrollo, el paquete tools, añadir una herramienta
 - [Security](SECURITY.md) — reportar una vulnerabilidad en pwner mismo

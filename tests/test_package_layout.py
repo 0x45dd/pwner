@@ -63,7 +63,7 @@ def test_every_tool_module_actually_registers_tools():
         by_module.setdefault(entry.fn.__module__.rsplit(".", 1)[-1], []).append(name)
     assert set(by_module) == set(SUBMODULES) - {"core"}, (
         f"tool-bearing modules changed: {sorted(by_module)}")
-    assert sum(len(v) for v in by_module.values()) == 49
+    assert sum(len(v) for v in by_module.values()) == 52
 
 
 def module_level_names(module: str) -> list[str]:

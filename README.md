@@ -63,7 +63,8 @@ It runs on your own model, or on no model at all.
   endpoint needs no API key. Nothing is sent anywhere until you configure one.
 - **Works with no model.** `--no-ai` runs the full discovery → fingerprint → detect pipeline
   deterministically, with no API key and nothing leaving the machine.
-- **49 tools** across nmap, HTTP, per-service probes, Active Directory and credential work,
+- **52 tools** across nmap, HTTP, web crawling and parameter probing, per-service probes,
+  Active Directory and credential work,
   each a thin wrapper over the standard binary rather than a reimplementation.
 
 ## Safety model
@@ -100,7 +101,7 @@ the answer is always no.
 
 These two are the part of the codebase under the most test: 77 tests on the scope boundary
 in [`tests/test_scope.py`](tests/test_scope.py) and 13 on the consent gate in
-[`tests/test_consent.py`](tests/test_consent.py), out of 626 overall. If you are going to
+[`tests/test_consent.py`](tests/test_consent.py), out of 693 overall. If you are going to
 read one thing before pointing this at a network, read those.
 
 Intended use:
@@ -301,7 +302,7 @@ Full command and config reference, the agent loop, the module catalogue and the 
 
 - [Docs](https://www.pwner.si/docs) — install, first session, every command and flag
 - [Agent](https://www.pwner.si/agent) — how the loop works and what it can and cannot do
-- [Modules](https://www.pwner.si/modules) — all 49 tools and what each one drives
+- [Modules](https://www.pwner.si/modules) — all 52 tools and what each one drives
 - [Rules](https://www.pwner.si/rules) — scope, consent, responsible use
 - [Contributing](CONTRIBUTING.md) — development setup, the tools package, adding a tool
 - [Security](SECURITY.md) — reporting a vulnerability in pwner itself

@@ -16,6 +16,7 @@ from .core import (
     _netexec,
     _nuclei_template_dir,
     _which_any,
+    has_dirsearch,
     has_hydra,
     has_nuclei,
     tool,
@@ -195,6 +196,10 @@ _PACKAGES: dict[str, dict[str, str | None]] = {
                      "pacman": "exploitdb", "dnf": None},
     "hashcat":      {"brew": "hashcat", "apt": "hashcat", "kali": "hashcat",
                      "pacman": "hashcat", "dnf": "hashcat"},
+    # dirsearch: a Debian Security Tools package, so apt and Kali both have it. Homebrew
+    # has no formula and Arch carries it only in the AUR, so those two get pipx.
+    "dirsearch":    {"brew": None, "apt": "dirsearch", "kali": "dirsearch",
+                     "pacman": None, "dnf": None},
     # Kali packages the whole AD toolchain that every other distro leaves to pipx, and
     # ships most of it preinstalled. Sending a Kali user to pipx would build a second,
     # worse copy of something already on their PATH.
@@ -213,6 +218,7 @@ _PIPX_PACKAGES = {
     "certipy": "certipy-ad",
     "bloodhound-python": "bloodhound",
     "netexec": "git+https://github.com/Pennyw0rth/NetExec",
+    "dirsearch": "dirsearch",
 }
 
 
@@ -276,6 +282,7 @@ def dependency_status() -> list[dict]:
         ("nmap", bool(shutil.which(NMAP_BIN)), _hint("nmap", pm), True,
          "port_scan/service_detect/vuln_scan/os_detect/ping_sweep/smb_enum/ssl_info/run_nmap"),
         ("nuclei", has_nuclei(), _hint("nuclei", pm), False, "nuclei_scan"),
+        ("dirsearch", has_dirsearch(), _hint("dirsearch", pm), False, "dirsearch_scan"),
         ("hydra", has_hydra(), _hint("hydra", pm), False, "hydra_brute"),
         ("snmpwalk", bool(shutil.which(SNMPWALK_BIN)), _hint("snmpwalk", pm), False, "snmp_check"),
         ("searchsploit", bool(shutil.which("searchsploit")), _hint("searchsploit", pm), False,

@@ -52,7 +52,7 @@ Er läuft mit deinem eigenen Modell — oder ganz ohne Modell.
 - **PCI-DSS-Segmentierungstest.** `pwner pci` prüft aus einem Out-of-Scope-Segment, ob
   die CDE isoliert ist (11.4.5/11.4.6); weil er deterministisch ist, ist ein erneuter Lauf
   nach dem Fix der von 11.4.4 geforderte Retest. Compliance entsteht dadurch nicht.
-- **49 Werkzeuge** über nmap, HTTP, dienstspezifische Probes, Active Directory und Arbeit
+- **52 Werkzeuge** über nmap, HTTP, dienstspezifische Probes, Active Directory und Arbeit
   mit Zugangsdaten — jedes ein dünner Wrapper um die Standard-Binary, keine
   Neuimplementierung.
 
@@ -76,7 +76,7 @@ Grenze weitermacht.
 
 Das ist der am stärksten getestete Teil der Codebasis: 77 Tests auf die Scope-Grenze in
 [`tests/test_scope.py`](tests/test_scope.py) und 13 auf das Freigabe-Gate in
-[`tests/test_consent.py`](tests/test_consent.py), von 626 insgesamt. Wenn du vor dem ersten
+[`tests/test_consent.py`](tests/test_consent.py), von 693 insgesamt. Wenn du vor dem ersten
 Einsatz gegen ein Netzwerk nur eine Sache lesen willst, lies diese.
 
 Vorgesehener Einsatz:
@@ -206,7 +206,7 @@ Englisch:
 
 - [Docs](https://www.pwner.si/docs) — Installation, erste Sitzung, jeder Befehl und jedes Flag
 - [Agent](https://www.pwner.si/agent) — wie die Schleife arbeitet und was sie kann und nicht kann
-- [Modules](https://www.pwner.si/modules) — alle 49 Werkzeuge und was jedes davon fährt
+- [Modules](https://www.pwner.si/modules) — alle 52 Werkzeuge und was jedes davon fährt
 - [Rules](https://www.pwner.si/rules) — Scope, Freigabe, verantwortungsvoller Einsatz
 - [Contributing](CONTRIBUTING.md) — Entwicklungsumgebung, das tools-Paket, ein Werkzeug hinzufügen
 - [Security](SECURITY.md) — eine Schwachstelle in pwner selbst melden
