@@ -7,6 +7,9 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/pwner/"><img
+    src="https://img.shields.io/pypi/v/pwner?color=4c4a42&label=pypi"
+    alt="pwner on PyPI"></a>
   <a href="https://github.com/0x45dd/pwner/blob/main/LICENSE"><img
     src="https://img.shields.io/github/license/0x45dd/pwner?color=4c4a42&label=license"
     alt="Lisans: AGPL-3.0-or-later"></a>
@@ -101,6 +104,18 @@ curl -fsSL https://raw.githubusercontent.com/0x45dd/pwner/main/install.sh | bash
 Bu komut `~/.local/share/pwner` altında izole bir virtualenv kurar, sistem Python'una
 dokunmaz ve `pwner`'ı PATH'ine ekler; böylece her dizinden çalışır. `--with-tools`
 eklersen nmap ve opsiyonel tarayıcıları da kurar, `--uninstall` ise hepsini geri alır.
+
+PyPI'da da var, kendi Python araçlarını kullanmayı tercih ediyorsan:
+
+```bash
+pipx install pwner      # izole kurar, `pwner` PATH'ine düşer
+uv tool install pwner   # aynısı, uv ile
+pip install pwner       # bir virtualenv içinde
+```
+
+Düz `pip install` yerine `pipx` ya da `uv tool` kullan: kurulum scriptinin verdiği izolasyonu
+veriyorlar, ayrıca sistem Python'una kurmak güncel dağıtımların çoğunda zaten reddediliyor.
+
 macOS'ta ayrıca bir tap var:
 
 ```bash

@@ -10,6 +10,9 @@
   <a href="https://github.com/0x45dd/pwner/actions/workflows/ci.yml"><img
     src="https://github.com/0x45dd/pwner/actions/workflows/ci.yml/badge.svg?branch=main"
     alt="CI status"></a>
+  <a href="https://pypi.org/project/pwner/"><img
+    src="https://img.shields.io/pypi/v/pwner?color=4c4a42&label=pypi"
+    alt="pwner on PyPI"></a>
   <a href="https://github.com/0x45dd/pwner/blob/main/LICENSE"><img
     src="https://img.shields.io/github/license/0x45dd/pwner?color=4c4a42&label=license"
     alt="License: AGPL-3.0-or-later"></a>
@@ -137,7 +140,21 @@ curl -fsSL https://raw.githubusercontent.com/0x45dd/pwner/main/install.sh | bash
 That builds an isolated virtualenv under `~/.local/share/pwner`, leaves your system
 Python alone, and puts `pwner` on your PATH so it works from any directory. Add
 `--with-tools` to install nmap and the optional scanners too, and `--uninstall` to take
-it all back out. On macOS there is also a tap:
+it all back out.
+
+It is on PyPI too, if you would rather use your own Python tooling:
+
+```bash
+pipx install pwner      # isolated, and `pwner` lands on your PATH
+uv tool install pwner   # the same, through uv
+pip install pwner       # inside a virtualenv
+```
+
+Reach for `pipx` or `uv tool` over a bare `pip install`: they give you the same isolation
+the installer script does, and installing into the system Python is refused outright on
+most current distributions anyway.
+
+On macOS there is also a tap:
 
 ```bash
 brew install 0x45dd/tap/pwner
@@ -175,8 +192,9 @@ If you are choosing where to run this, run it there.
 <summary><b>uv, or just the command</b></summary>
 
 ```bash
-uv venv && uv pip install -e .
-pipx install -e .
+uv tool install pwner          # from PyPI, command on your PATH
+uv venv && uv pip install -e . # from a clone, editable
+pipx install -e .              # from a clone, command on your PATH
 ```
 
 </details>

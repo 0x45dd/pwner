@@ -7,6 +7,9 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/pwner/"><img
+    src="https://img.shields.io/pypi/v/pwner?color=4c4a42&label=pypi"
+    alt="pwner on PyPI"></a>
   <a href="https://github.com/0x45dd/pwner/blob/main/LICENSE"><img
     src="https://img.shields.io/github/license/0x45dd/pwner?color=4c4a42&label=license"
     alt="Lizenz: AGPL-3.0-or-later"></a>
@@ -110,7 +113,21 @@ curl -fsSL https://raw.githubusercontent.com/0x45dd/pwner/main/install.sh | bash
 Das baut ein isoliertes Virtualenv unter `~/.local/share/pwner`, lässt dein System-Python
 unangetastet und legt `pwner` in deinen PATH, sodass es aus jedem Verzeichnis funktioniert.
 `--with-tools` installiert nmap und die optionalen Scanner mit, `--uninstall` nimmt alles
-wieder heraus. Unter macOS gibt es außerdem einen Tap:
+wieder heraus.
+
+Es liegt auch auf PyPI, falls du lieber dein eigenes Python-Werkzeug nutzt:
+
+```bash
+pipx install pwner      # isoliert, und `pwner` landet in deinem PATH
+uv tool install pwner   # dasselbe, über uv
+pip install pwner       # innerhalb eines Virtualenvs
+```
+
+Greife zu `pipx` oder `uv tool` statt zu einem nackten `pip install`: sie geben dir dieselbe
+Isolation wie das Installationsskript, und in das System-Python zu installieren wird auf den
+meisten aktuellen Distributionen ohnehin verweigert.
+
+Unter macOS gibt es außerdem einen Tap:
 
 ```bash
 brew install 0x45dd/tap/pwner

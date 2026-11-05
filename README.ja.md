@@ -7,6 +7,9 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/pwner/"><img
+    src="https://img.shields.io/pypi/v/pwner?color=4c4a42&label=pypi"
+    alt="pwner on PyPI"></a>
   <a href="https://github.com/0x45dd/pwner/blob/main/LICENSE"><img
     src="https://img.shields.io/github/license/0x45dd/pwner?color=4c4a42&label=license"
     alt="ライセンス: AGPL-3.0-or-later"></a>
@@ -100,8 +103,21 @@ curl -fsSL https://raw.githubusercontent.com/0x45dd/pwner/main/install.sh | bash
 
 これは `~/.local/share/pwner` 以下に独立した virtualenv を作り、システムの Python には
 手を付けず、`pwner` を PATH に置くのでどのディレクトリからでも動きます。`--with-tools` を
-付けると nmap と任意のスキャナも入り、`--uninstall` ですべて取り除けます。macOS 向けには
-tap もあります。
+付けると nmap と任意のスキャナも入り、`--uninstall` ですべて取り除けます。
+
+PyPI にも公開しているので、普段使いの Python ツールからも入れられます。
+
+```bash
+pipx install pwner      # 独立環境に入り、`pwner` が PATH に置かれる
+uv tool install pwner   # 同じことを uv で
+pip install pwner       # virtualenv の中で
+```
+
+素の `pip install` より `pipx` か `uv tool` を選んでください。インストールスクリプトと同じ
+独立性が得られますし、そもそもシステムの Python へのインストールは最近のディストリビュー
+ションではまず拒否されます。
+
+macOS 向けには tap もあります。
 
 ```bash
 brew install 0x45dd/tap/pwner
