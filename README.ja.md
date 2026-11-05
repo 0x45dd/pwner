@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" width="250" alt="pwner">
+  <img src="https://raw.githubusercontent.com/0x45dd/pwner/main/docs/logo.svg" width="250" alt="pwner">
 </p>
 
 <p align="center">
@@ -7,21 +7,21 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img
+  <a href="https://github.com/0x45dd/pwner/blob/main/LICENSE"><img
     src="https://img.shields.io/github/license/0x45dd/pwner?color=4c4a42&label=license"
     alt="ライセンス: AGPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-4c4a42" alt="Python 3.10+">
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> &nbsp;·&nbsp;
-  <a href="README.es.md">Español</a> &nbsp;·&nbsp;
-  <a href="README.de.md">Deutsch</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.md">English</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.es.md">Español</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.de.md">Deutsch</a> &nbsp;·&nbsp;
   <b>日本語</b> &nbsp;·&nbsp;
-  <a href="README.tr.md">Türkçe</a>
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.tr.md">Türkçe</a>
 </p>
 
-> これは [README.md](README.md) の要約版です。コマンドと設定の完全なリファレンスは英語のみ
+> これは [README.md](https://github.com/0x45dd/pwner/blob/main/README.md) の要約版です。コマンドと設定の完全なリファレンスは英語のみ
 > で提供されています。記述に食い違いがある場合は、英語版が正となります。
 
 `pwner` は、ターミナルからネットワークペネトレーションテストを計画し実行する、LLM 駆動の
@@ -55,7 +55,7 @@ hydra など）、確認された検出結果を深刻度・証跡・修正方�
 
 2 つの仕組みがあり、どちらもツール層にあり、どちらもモデルの手の届かないところにあります。
 
-**スコープロック。** [`build_dispatch`](pwner/tools/core.py) がすべてのツールをラップし、
+**スコープロック。** [`build_dispatch`](https://github.com/0x45dd/pwner/blob/main/pwner/tools/core.py) がすべてのツールをラップし、
 ホストを含む引数は、ツール本体が実行される*前*にあなたの対象と照合されます。ツールは既定で
 スコープ内として扱われるため、自前のチェックを忘れたツールも保護され、未登録のツール名は
 安全側に倒れて失敗します。ネットワーク引数は、認可範囲に完全に収まっていなければなりません。
@@ -72,8 +72,8 @@ hydra など）、確認された検出結果を深刻度・証跡・修正方�
 行き過ぎたことを学び、境界の内側で作業を続けます。
 
 ここはコードベースの中で最もテストが厚い部分です。スコープ境界に
-[`tests/test_scope.py`](tests/test_scope.py) の 77 件、承認ゲートに
-[`tests/test_consent.py`](tests/test_consent.py) の 13 件、全体 725 件のうちの内訳です。
+[`tests/test_scope.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_scope.py) の 77 件、承認ゲートに
+[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py) の 13 件、全体 725 件のうちの内訳です。
 これをネットワークに向ける前に 1 つだけ読むなら、この 2 つを読んでください。
 
 想定している用途:
@@ -198,8 +198,8 @@ OS フィンガープリント、既知の問題の検出、そして同じ検�
 - [Agent](https://www.pwner.si/agent) — ループの仕組みと、できること・できないこと
 - [Modules](https://www.pwner.si/modules) — 52 個のツールと、それぞれが何を動かすか
 - [Rules](https://www.pwner.si/rules) — スコープ、承認、責任ある利用
-- [Contributing](CONTRIBUTING.md) — 開発環境、tools パッケージ、ツールの追加方法
-- [Security](SECURITY.md) — pwner 自体の脆弱性の報告
+- [Contributing](https://github.com/0x45dd/pwner/blob/main/CONTRIBUTING.md) — 開発環境、tools パッケージ、ツールの追加方法
+- [Security](https://github.com/0x45dd/pwner/blob/main/SECURITY.md) — pwner 自体の脆弱性の報告
 
 ## 連絡先
 
@@ -207,11 +207,11 @@ OS フィンガープリント、既知の問題の検出、そして同じ検�
 [berk@planckproof.ai](mailto:berk@planckproof.ai) までメールしてください。
 
 バグや機能の要望は [issue](https://github.com/0x45dd/pwner/issues) のほうが適しています。脆弱性については、修正ができるまで
-非公開に保てるよう [SECURITY.md](SECURITY.md) の手順に従ってください。
+非公開に保てるよう [SECURITY.md](https://github.com/0x45dd/pwner/blob/main/SECURITY.md) の手順に従ってください。
 
 ## ライセンス
 
-[GNU AGPL-3.0-or-later](LICENSE)。Copyright (C) 2026 Berk D.
+[GNU AGPL-3.0-or-later](https://github.com/0x45dd/pwner/blob/main/LICENSE)。Copyright (C) 2026 Berk D.
 
 ネットワーク条項を含む強いコピーレフトです。pwner を改変し、ネットワーク越しに他の人に
 使わせる場合、改変したソースもその人たちに提供する義務があります。

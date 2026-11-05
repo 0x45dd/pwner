@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" width="250" alt="pwner">
+  <img src="https://raw.githubusercontent.com/0x45dd/pwner/main/docs/logo.svg" width="250" alt="pwner">
 </p>
 
 <p align="center">
@@ -10,7 +10,7 @@
   <a href="https://github.com/0x45dd/pwner/actions/workflows/ci.yml"><img
     src="https://github.com/0x45dd/pwner/actions/workflows/ci.yml/badge.svg?branch=main"
     alt="CI status"></a>
-  <a href="LICENSE"><img
+  <a href="https://github.com/0x45dd/pwner/blob/main/LICENSE"><img
     src="https://img.shields.io/github/license/0x45dd/pwner?color=4c4a42&label=license"
     alt="License: AGPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-4c4a42" alt="Python 3.10+">
@@ -18,10 +18,10 @@
 
 <p align="center">
   <b>English</b> &nbsp;·&nbsp;
-  <a href="README.es.md">Español</a> &nbsp;·&nbsp;
-  <a href="README.de.md">Deutsch</a> &nbsp;·&nbsp;
-  <a href="README.ja.md">日本語</a> &nbsp;·&nbsp;
-  <a href="README.tr.md">Türkçe</a>
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.es.md">Español</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.de.md">Deutsch</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.ja.md">日本語</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.tr.md">Türkçe</a>
 </p>
 
 <p align="center">
@@ -34,7 +34,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/session.gif" width="860"
+  <img src="https://raw.githubusercontent.com/0x45dd/pwner/main/docs/session.gif" width="860"
        alt="A pwner session: the operator sets a target and asks for a full scan. The agent port-scans, fingerprints services, checks for known issues, reports two findings, then stops and asks permission before brute-forcing SSH. The operator answers n and it skips.">
 </p>
 
@@ -89,7 +89,7 @@ flowchart LR
 A refusal is not an error that stops the run: it goes back to the model as a tool result,
 so the agent learns it overstepped and carries on inside the boundary.
 
-**Scope lock.** [`build_dispatch`](pwner/tools/core.py) wraps every tool so each
+**Scope lock.** [`build_dispatch`](https://github.com/0x45dd/pwner/blob/main/pwner/tools/core.py) wraps every tool so each
 host-carrying argument is checked against your target *before* the tool body runs. Tools are
 in-scope-by-default: one that forgets its own check is still guarded, and an unregistered
 tool name fails closed. A network argument has to sit entirely inside the authorization, so
@@ -107,9 +107,9 @@ cannot self-approve — consent is resolved outside the model — and a non-inte
 refuses it unless you launched it with `--auto-consent`.
 
 These two are the part of the codebase under the most test: 77 tests on the scope boundary
-in [`tests/test_scope.py`](tests/test_scope.py), 32 more on the scope-change gate in
-[`tests/test_scope_change.py`](tests/test_scope_change.py), and 13 on the consent gate in
-[`tests/test_consent.py`](tests/test_consent.py), out of 725 overall. If you are going to
+in [`tests/test_scope.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_scope.py), 32 more on the scope-change gate in
+[`tests/test_scope_change.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_scope_change.py), and 13 on the consent gate in
+[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py), out of 725 overall. If you are going to
 read one thing before pointing this at a network, read those.
 
 Intended use:
@@ -241,7 +241,7 @@ pwner chat 10.0.0.5 --provider anthropic
 ```
 
 The model has to support tool calling. `pwner chat --help` lists the presets and every
-override; each preset's default model is in [`pwner/llm.py`](pwner/llm.py). Model names move
+override; each preset's default model is in [`pwner/llm.py`](https://github.com/0x45dd/pwner/blob/main/pwner/llm.py). Model names move
 too fast to be worth pinning in a README.
 
 ### On your own hardware
@@ -312,8 +312,8 @@ Full command and config reference, the agent loop, the module catalogue and the 
 - [Agent](https://www.pwner.si/agent) — how the loop works and what it can and cannot do
 - [Modules](https://www.pwner.si/modules) — all 52 tools and what each one drives
 - [Rules](https://www.pwner.si/rules) — scope, consent, responsible use
-- [Contributing](CONTRIBUTING.md) — development setup, the tools package, adding a tool
-- [Security](SECURITY.md) — reporting a vulnerability in pwner itself
+- [Contributing](https://github.com/0x45dd/pwner/blob/main/CONTRIBUTING.md) — development setup, the tools package, adding a tool
+- [Security](https://github.com/0x45dd/pwner/blob/main/SECURITY.md) — reporting a vulnerability in pwner itself
 
 ## Contact
 
@@ -321,11 +321,11 @@ For anything that does not belong in a public issue — questions, private feedb
 getting in touch directly — email [berk@planckproof.ai](mailto:berk@planckproof.ai).
 
 Bugs and feature requests work better as [issues](https://github.com/0x45dd/pwner/issues), and security vulnerabilities
-should go through [SECURITY.md](SECURITY.md) so they stay private until there is a fix.
+should go through [SECURITY.md](https://github.com/0x45dd/pwner/blob/main/SECURITY.md) so they stay private until there is a fix.
 
 ## License
 
-[GNU AGPL-3.0-or-later](LICENSE). Copyright (C) 2026 Berk D.
+[GNU AGPL-3.0-or-later](https://github.com/0x45dd/pwner/blob/main/LICENSE). Copyright (C) 2026 Berk D.
 
 Strong copyleft, with a network clause: if you modify pwner and let other people use it over
 a network, you owe them the modified source too.

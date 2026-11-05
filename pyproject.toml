@@ -10,12 +10,28 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
+keywords = [
+    "pentest", "penetration-testing", "security", "offensive-security", "infosec",
+    "nmap", "active-directory", "kerberos", "llm", "agent", "local-llm", "ollama",
+    "pci-dss", "red-team", "cli",
+]
+# The Python versions are the ones CI actually runs (3.10 through 3.13); PyPI uses these
+# for its own filtering, so listing a version here is a claim that it is tested.
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
     "Topic :: Security",
+    "Topic :: System :: Networking :: Monitoring",
 ]
 dependencies = [
     "httpx>=0.27",

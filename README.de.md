@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" width="250" alt="pwner">
+  <img src="https://raw.githubusercontent.com/0x45dd/pwner/main/docs/logo.svg" width="250" alt="pwner">
 </p>
 
 <p align="center">
@@ -7,21 +7,21 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img
+  <a href="https://github.com/0x45dd/pwner/blob/main/LICENSE"><img
     src="https://img.shields.io/github/license/0x45dd/pwner?color=4c4a42&label=license"
     alt="Lizenz: AGPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-4c4a42" alt="Python 3.10+">
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> &nbsp;·&nbsp;
-  <a href="README.es.md">Español</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.md">English</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.es.md">Español</a> &nbsp;·&nbsp;
   <b>Deutsch</b> &nbsp;·&nbsp;
-  <a href="README.ja.md">日本語</a> &nbsp;·&nbsp;
-  <a href="README.tr.md">Türkçe</a>
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.ja.md">日本語</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.tr.md">Türkçe</a>
 </p>
 
-> Dies ist eine gekürzte Übersetzung von [README.md](README.md). Die vollständige Befehls-
+> Dies ist eine gekürzte Übersetzung von [README.md](https://github.com/0x45dd/pwner/blob/main/README.md). Die vollständige Befehls-
 > und Konfigurationsreferenz gibt es nur auf Englisch. Bei Widersprüchen gilt der englische
 > Text.
 
@@ -60,7 +60,7 @@ Er läuft mit deinem eigenen Modell — oder ganz ohne Modell.
 
 Zwei Mechanismen, beide in der Tool-Schicht, beide außerhalb der Reichweite des Modells.
 
-**Scope-Sperre.** [`build_dispatch`](pwner/tools/core.py) umhüllt jedes Werkzeug, sodass
+**Scope-Sperre.** [`build_dispatch`](https://github.com/0x45dd/pwner/blob/main/pwner/tools/core.py) umhüllt jedes Werkzeug, sodass
 jedes Argument, das einen Host trägt, gegen dein Ziel geprüft wird, *bevor* der Rumpf des
 Werkzeugs läuft. Werkzeuge sind standardmäßig im Scope: eines, das seine eigene Prüfung
 vergisst, ist trotzdem abgesichert, und ein nicht registrierter Werkzeugname schlägt
@@ -80,8 +80,8 @@ Modell zurück, sodass der Agent lernt, dass er zu weit gegriffen hat, und inner
 Grenze weitermacht.
 
 Das ist der am stärksten getestete Teil der Codebasis: 77 Tests auf die Scope-Grenze in
-[`tests/test_scope.py`](tests/test_scope.py) und 13 auf das Freigabe-Gate in
-[`tests/test_consent.py`](tests/test_consent.py), von 725 insgesamt. Wenn du vor dem ersten
+[`tests/test_scope.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_scope.py) und 13 auf das Freigabe-Gate in
+[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py), von 725 insgesamt. Wenn du vor dem ersten
 Einsatz gegen ein Netzwerk nur eine Sache lesen willst, lies diese.
 
 Vorgesehener Einsatz:
@@ -213,8 +213,8 @@ Englisch:
 - [Agent](https://www.pwner.si/agent) — wie die Schleife arbeitet und was sie kann und nicht kann
 - [Modules](https://www.pwner.si/modules) — alle 52 Werkzeuge und was jedes davon fährt
 - [Rules](https://www.pwner.si/rules) — Scope, Freigabe, verantwortungsvoller Einsatz
-- [Contributing](CONTRIBUTING.md) — Entwicklungsumgebung, das tools-Paket, ein Werkzeug hinzufügen
-- [Security](SECURITY.md) — eine Schwachstelle in pwner selbst melden
+- [Contributing](https://github.com/0x45dd/pwner/blob/main/CONTRIBUTING.md) — Entwicklungsumgebung, das tools-Paket, ein Werkzeug hinzufügen
+- [Security](https://github.com/0x45dd/pwner/blob/main/SECURITY.md) — eine Schwachstelle in pwner selbst melden
 
 ## Kontakt
 
@@ -222,12 +222,12 @@ Für alles, was nicht in ein öffentliches Issue gehört — Fragen, privates Fe
 direkter Kontakt — schreib an [berk@planckproof.ai](mailto:berk@planckproof.ai).
 
 Bugs und Feature-Wünsche sind als [Issue](https://github.com/0x45dd/pwner/issues) besser aufgehoben, und Sicherheitslücken
-sollten über [SECURITY.md](SECURITY.md) laufen, damit sie privat bleiben, bis es einen Fix
+sollten über [SECURITY.md](https://github.com/0x45dd/pwner/blob/main/SECURITY.md) laufen, damit sie privat bleiben, bis es einen Fix
 gibt.
 
 ## Lizenz
 
-[GNU AGPL-3.0-or-later](LICENSE). Copyright (C) 2026 Berk D.
+[GNU AGPL-3.0-or-later](https://github.com/0x45dd/pwner/blob/main/LICENSE). Copyright (C) 2026 Berk D.
 
 Starkes Copyleft mit Netzwerkklausel: wenn du pwner veränderst und andere es über ein
 Netzwerk nutzen lässt, schuldest du ihnen auch den veränderten Quellcode.

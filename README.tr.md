@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" width="250" alt="pwner">
+  <img src="https://raw.githubusercontent.com/0x45dd/pwner/main/docs/logo.svg" width="250" alt="pwner">
 </p>
 
 <p align="center">
@@ -7,21 +7,21 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img
+  <a href="https://github.com/0x45dd/pwner/blob/main/LICENSE"><img
     src="https://img.shields.io/github/license/0x45dd/pwner?color=4c4a42&label=license"
     alt="Lisans: AGPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-4c4a42" alt="Python 3.10+">
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> &nbsp;·&nbsp;
-  <a href="README.es.md">Español</a> &nbsp;·&nbsp;
-  <a href="README.de.md">Deutsch</a> &nbsp;·&nbsp;
-  <a href="README.ja.md">日本語</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.md">English</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.es.md">Español</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.de.md">Deutsch</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.ja.md">日本語</a> &nbsp;·&nbsp;
   <b>Türkçe</b>
 </p>
 
-> Bu, [README.md](README.md) dosyasının özet çevirisidir. Tam komut ve yapılandırma
+> Bu, [README.md](https://github.com/0x45dd/pwner/blob/main/README.md) dosyasının özet çevirisidir. Tam komut ve yapılandırma
 > referansı yalnızca İngilizcedir. Bir çelişki görürsen İngilizce metin geçerlidir.
 
 `pwner`, terminalinden bir ağ sızma testini planlayıp yürüten, LLM tarafından sürülen bir
@@ -54,7 +54,7 @@ Kendi modelinle çalışır, ya da hiç model olmadan.
 
 İki mekanizma, ikisi de tool katmanında, ikisi de modelin erişemediği yerde.
 
-**Scope kilidi.** [`build_dispatch`](pwner/tools/core.py) her tool'u sarar; host taşıyan
+**Scope kilidi.** [`build_dispatch`](https://github.com/0x45dd/pwner/blob/main/pwner/tools/core.py) her tool'u sarar; host taşıyan
 her argüman, tool gövdesi çalışmadan *önce* senin hedefine karşı kontrol edilir. Tool'lar
 varsayılan olarak scope içindedir: kendi kontrolünü yapmayı unutan bir tool bile korunur,
 kayıtlı olmayan bir tool adı ise kapalı başarısız olur. Bir network argümanının tamamen
@@ -72,8 +72,8 @@ Reddedilme, çalışmayı durduran bir hata değildir: modele tool sonucu olarak
 böylece ajan sınırı aştığını öğrenir ve sınırın içinde devam eder.
 
 Kod tabanında en çok test edilen kısım bunlar: scope sınırında
-[`tests/test_scope.py`](tests/test_scope.py) içinde 77 test, onay kapısında
-[`tests/test_consent.py`](tests/test_consent.py) içinde 13 test — toplam 725 testin içinden.
+[`tests/test_scope.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_scope.py) içinde 77 test, onay kapısında
+[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py) içinde 13 test — toplam 725 testin içinden.
 Bunu bir ağa doğrultmadan önce tek bir şey okuyacaksan, onları oku.
 
 Kullanım amacı:
@@ -199,8 +199,8 @@ Tam komut ve yapılandırma referansı, ajan döngüsü, modül kataloğu ve kur
 - [Agent](https://www.pwner.si/agent) — döngü nasıl çalışır, neyi yapabilir neyi yapamaz
 - [Modules](https://www.pwner.si/modules) — 52 tool ve her birinin neyi sürdüğü
 - [Rules](https://www.pwner.si/rules) — scope, onay, sorumlu kullanım
-- [Contributing](CONTRIBUTING.md) — geliştirme ortamı, tools paketi, tool ekleme
-- [Security](SECURITY.md) — pwner'ın kendisindeki bir zafiyeti bildirmek
+- [Contributing](https://github.com/0x45dd/pwner/blob/main/CONTRIBUTING.md) — geliştirme ortamı, tools paketi, tool ekleme
+- [Security](https://github.com/0x45dd/pwner/blob/main/SECURITY.md) — pwner'ın kendisindeki bir zafiyeti bildirmek
 
 ## İletişim
 
@@ -208,11 +208,11 @@ Herkese açık bir issue'ya uygun olmayan her şey için — sorular, özel geri
 doğrudan ulaşmak — [berk@planckproof.ai](mailto:berk@planckproof.ai) adresine yazabilirsin.
 
 Hatalar ve özellik istekleri [issue](https://github.com/0x45dd/pwner/issues) olarak daha iyi işler; güvenlik zafiyetleri
-ise bir düzeltme çıkana kadar özel kalsın diye [SECURITY.md](SECURITY.md) üzerinden gitmeli.
+ise bir düzeltme çıkana kadar özel kalsın diye [SECURITY.md](https://github.com/0x45dd/pwner/blob/main/SECURITY.md) üzerinden gitmeli.
 
 ## Lisans
 
-[GNU AGPL-3.0-or-later](LICENSE). Copyright (C) 2026 Berk D.
+[GNU AGPL-3.0-or-later](https://github.com/0x45dd/pwner/blob/main/LICENSE). Copyright (C) 2026 Berk D.
 
 Güçlü copyleft, ağ maddesiyle: pwner'ı değiştirip başkalarının ağ üzerinden kullanmasına
 izin verirsen, değiştirdiğin kaynağı da onlara borçlusun.

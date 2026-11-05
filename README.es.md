@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" width="250" alt="pwner">
+  <img src="https://raw.githubusercontent.com/0x45dd/pwner/main/docs/logo.svg" width="250" alt="pwner">
 </p>
 
 <p align="center">
@@ -7,21 +7,21 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img
+  <a href="https://github.com/0x45dd/pwner/blob/main/LICENSE"><img
     src="https://img.shields.io/github/license/0x45dd/pwner?color=4c4a42&label=license"
     alt="Licencia: AGPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/python-3.10%2B-4c4a42" alt="Python 3.10+">
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.md">English</a> &nbsp;·&nbsp;
   <b>Español</b> &nbsp;·&nbsp;
-  <a href="README.de.md">Deutsch</a> &nbsp;·&nbsp;
-  <a href="README.ja.md">日本語</a> &nbsp;·&nbsp;
-  <a href="README.tr.md">Türkçe</a>
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.de.md">Deutsch</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.ja.md">日本語</a> &nbsp;·&nbsp;
+  <a href="https://github.com/0x45dd/pwner/blob/main/README.tr.md">Türkçe</a>
 </p>
 
-> Esta es una traducción resumida de [README.md](README.md). La referencia completa de
+> Esta es una traducción resumida de [README.md](https://github.com/0x45dd/pwner/blob/main/README.md). La referencia completa de
 > comandos y configuración solo existe en inglés. Si encuentras una discrepancia, el texto
 > en inglés es el que manda.
 
@@ -59,7 +59,7 @@ Funciona con tu propio modelo, o sin modelo alguno.
 
 Dos mecanismos, ambos en la capa de herramientas, ambos fuera del alcance del modelo.
 
-**Bloqueo de alcance.** [`build_dispatch`](pwner/tools/core.py) envuelve cada herramienta
+**Bloqueo de alcance.** [`build_dispatch`](https://github.com/0x45dd/pwner/blob/main/pwner/tools/core.py) envuelve cada herramienta
 para que todo argumento que lleve un host se verifique contra tu objetivo *antes* de que se
 ejecute el cuerpo de la herramienta. Las herramientas están dentro del alcance por defecto:
 una que olvide su propia comprobación sigue estando protegida, y un nombre de herramienta no
@@ -79,8 +79,8 @@ Una denegación no es un error que detenga la ejecución: vuelve al modelo como 
 la herramienta, así que el agente aprende que se excedió y continúa dentro del límite.
 
 Esta es la parte del código con más pruebas: 77 pruebas sobre el límite de alcance en
-[`tests/test_scope.py`](tests/test_scope.py) y 13 sobre la puerta de consentimiento en
-[`tests/test_consent.py`](tests/test_consent.py), de 725 en total. Si vas a leer una sola
+[`tests/test_scope.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_scope.py) y 13 sobre la puerta de consentimiento en
+[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py), de 725 en total. Si vas a leer una sola
 cosa antes de apuntar esto a una red, lee esas.
 
 Uso previsto:
@@ -209,8 +209,8 @@ módulos y las reglas están en **[pwner.si](https://www.pwner.si/)**, solo en i
 - [Agent](https://www.pwner.si/agent) — cómo funciona el bucle y qué puede y no puede hacer
 - [Modules](https://www.pwner.si/modules) — las 52 herramientas y qué usa cada una
 - [Rules](https://www.pwner.si/rules) — alcance, consentimiento, uso responsable
-- [Contributing](CONTRIBUTING.md) — entorno de desarrollo, el paquete tools, añadir una herramienta
-- [Security](SECURITY.md) — reportar una vulnerabilidad en pwner mismo
+- [Contributing](https://github.com/0x45dd/pwner/blob/main/CONTRIBUTING.md) — entorno de desarrollo, el paquete tools, añadir una herramienta
+- [Security](https://github.com/0x45dd/pwner/blob/main/SECURITY.md) — reportar una vulnerabilidad en pwner mismo
 
 ## Contacto
 
@@ -218,12 +218,12 @@ Para cualquier cosa que no encaje en un issue público —preguntas, comentarios
 simplemente ponerse en contacto directamente— escribe a [berk@planckproof.ai](mailto:berk@planckproof.ai).
 
 Los bugs y las peticiones de funcionalidad funcionan mejor como [issues](https://github.com/0x45dd/pwner/issues), y las
-vulnerabilidades de seguridad deberían ir por [SECURITY.md](SECURITY.md) para que sigan
+vulnerabilidades de seguridad deberían ir por [SECURITY.md](https://github.com/0x45dd/pwner/blob/main/SECURITY.md) para que sigan
 siendo privadas hasta que haya una corrección.
 
 ## Licencia
 
-[GNU AGPL-3.0-or-later](LICENSE). Copyright (C) 2026 Berk D.
+[GNU AGPL-3.0-or-later](https://github.com/0x45dd/pwner/blob/main/LICENSE). Copyright (C) 2026 Berk D.
 
 Copyleft fuerte, con cláusula de red: si modificas pwner y dejas que otras personas lo usen
 a través de una red, también les debes el código fuente modificado.
