@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pwner"
-version = "0.3.0"
+version = "0.3.1"
 description = "Autonomous agentic network penetration-testing tool (authorized use only)"
 readme = "README.md"
 requires-python = ">=3.10"
