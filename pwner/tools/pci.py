@@ -320,6 +320,11 @@ async def segmentation_test(ctx: ScanContext, args: dict) -> dict:
     filed = _file_reachable_findings(ctx, result)
     if filed:
         result["findings_filed"] = filed
+    # A boundary that did not hold is worth more deliberation than one that did. Read by the
+    # agent loop to raise the reasoning budget for the next few steps. `inconclusive` counts
+    # too: not knowing whether a packet arrived is its own thing to reason about.
+    result["significance"] = (
+        "high" if result["verdict"] in ("not_isolated", "inconclusive") else "low")
     return result
 
 

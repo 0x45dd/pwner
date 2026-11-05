@@ -299,12 +299,15 @@ async def run_agentic(ctx: ScanContext, cfg: tuple[str, str, str], max_steps: in
     # Opt-in extra deliberation for OpenAI/Gemini reasoning models (deepseek-reasoner thinks
     # unconditionally and ignores it). Unset by default so non-reasoning models don't 400.
     import os as _os
-    reasoning_effort = (_os.environ.get("PWNER_REASONING_EFFORT") or "").strip() or None
+    reasoning_effort = ((ctx.reasoning_effort or "").strip()
+                        or (_os.environ.get("PWNER_REASONING_EFFORT") or "").strip() or None)
     try:
         summary = await client.run_tools(
             SYSTEM, tools.brief(ctx, instructions), tools.tool_schemas(), dispatch,
             max_steps=max_steps, reasoning_effort=reasoning_effort, on_step=on_step, on_call=on_call,
-            on_thought=on_thought, steer=steer)
+            on_thought=on_thought, steer=steer,
+            open_work=lambda: tools.open_work_report(ctx),
+            effort_boost=tools.effort_boost(reasoning_effort or ""))
     except (AIUnavailable, LLMError) as e:
         _out(ctx, f"[red][!] LLM error: {e}[/red]")
         summary = "(LLM error — partial results below)"

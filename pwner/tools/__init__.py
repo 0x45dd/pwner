@@ -61,6 +61,7 @@ from .core import (  # noqa: F401
     DEFAULT_PASSWORDS,
     DEFAULT_USERS,
     DIRSEARCH_BIN,
+    EFFORT_LEVELS,
     HYDRA_BIN,
     NMAP_BIN,
     NUCLEI_BIN,
@@ -89,6 +90,7 @@ from .core import (  # noqa: F401
     _Tool,
     _which_any,
     build_dispatch,
+    effort_boost,
     expand_hosts,
     has_dirsearch,
     has_hydra,
@@ -136,6 +138,7 @@ from .pci import (  # noqa: F401
     summarise_segmentation,
 )
 from .report import (  # noqa: F401
+    HYPOTHESIS_STATES,
     _env_note,
     brief,
     dependency_status,
@@ -144,8 +147,11 @@ from .report import (  # noqa: F401
     ledger,
     missing_tool_names,
     note,
+    open_hypotheses,
+    open_work_report,
     report_finding,
     request_consent,
+    untested_surface,
 )
 from .session import (  # noqa: F401
     ExploitState,

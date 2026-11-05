@@ -42,6 +42,7 @@ _COMMANDS: dict[str, str] = {
     "/target": "set / replace the authorized target",
     "/model": "show or switch the model on the current provider",
     "/provider": "show or switch the AI provider",
+    "/effort": "how hard the model thinks (low|medium|high|off)",
     "/findings": "list findings reported so far",
     "/topology": "print the discovered network map",
     "/consent": "toggle auto-approve for high-impact actions (on|off)",
@@ -75,7 +76,7 @@ HELP = r"""[bold]pwner[/bold] — talk to the agent, or use a /command:
 SPINNER_FRAMES = "⣾⣽⣻⢿⡿⣟⣯⣷"
 # slash commands allowed to run while a turn is in-flight (read-only / control)
 _BUSY_OK = {"/findings", "/topology", "/topo", "/map", "/help", "/h", "/?", "/consent", "/stop", "/cancel",
-            "/model", "/models", "/provider",
+            "/model", "/models", "/provider", "/effort",
             "/dump", "/save", "/doctor", "/tools", "/deps"}
 
 
@@ -198,12 +199,16 @@ class ReplSession:
         try:
             interrupt = (lambda: ch.has_pending()) if ch is not None else None
             import os as _os
-            reasoning_effort = (_os.environ.get("PWNER_REASONING_EFFORT") or "").strip() or None
+            reasoning_effort = ((self.ctx.reasoning_effort or "").strip()
+                                or (_os.environ.get("PWNER_REASONING_EFFORT") or "").strip()
+                                or None)
             text = await self.client.run_turn(
                 self.messages, tools.tool_schemas(), self.dispatch,
                 max_steps=self.max_steps, reasoning_effort=reasoning_effort, on_step=self._on_step,
                 on_call=self._on_call, on_thought=self._on_thought,
-                on_usage=self._on_usage, interrupt=interrupt, steer=steer)
+                on_usage=self._on_usage, interrupt=interrupt, steer=steer,
+                open_work=lambda: tools.open_work_report(self.ctx),
+                effort_boost=tools.effort_boost(reasoning_effort or ""))
         except (AIUnavailable, LLMError) as e:
             self.tui.log(f"[red][!] LLM error: {e}[/red]")
             return
@@ -386,6 +391,33 @@ class ReplSession:
                      + ("" if saved else " [dim](not saved: config not writable)[/dim]"))
         self._refresh()
 
+    def _cmd_effort(self, arg: str) -> None:
+        """Show or set how hard the model is asked to think, for the rest of the session.
+
+        Not persisted to the config on purpose: the right effort depends on what you are
+        doing right now, and a saved "high" would quietly bill every later session for
+        deliberation it did not need. It also stays unset by default, because a model that
+        does not know `reasoning_effort` answers 400 to it rather than ignoring it.
+        """
+        cur = (self.ctx.reasoning_effort or "").strip()
+        want = (arg or "").strip().lower()
+        if not want:
+            self.tui.log(f"effort: [cyan]{cur or '(unset — provider default)'}[/cyan] "
+                         f"[dim]· low|medium|high|off · raised one notch for a few steps "
+                         f"after a tool reports something significant[/dim]")
+            return
+        if want in ("off", "none", "unset", "default"):
+            self.ctx.reasoning_effort = ""
+            self.tui.log("[cyan]effort → unset[/cyan] [dim](the parameter is no longer sent)[/dim]")
+            return
+        if want not in tools.EFFORT_LEVELS:
+            self.tui.log(f"[yellow]effort must be one of "
+                         f"{', '.join(tools.EFFORT_LEVELS)}, or off.[/yellow]")
+            return
+        self.ctx.reasoning_effort = want
+        self.tui.log(f"[cyan]effort → {want}[/cyan] [dim](boosts to "
+                     f"{tools.effort_boost(want)} after a significant result)[/dim]")
+
     async def _cmd_provider(self, arg: str) -> None:
         """Show the providers, or switch to one."""
         if not arg:
@@ -467,6 +499,8 @@ class ReplSession:
             await self._cmd_model(arg)
         elif cmd == "/provider":
             await self._cmd_provider(arg)
+        elif cmd == "/effort":
+            self._cmd_effort(arg)
         elif cmd == "/scan":
             target = arg or self.ctx.target
             if not target:

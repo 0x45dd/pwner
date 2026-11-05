@@ -339,6 +339,10 @@ class LLMClient:
         on_usage: Callable[[dict], None] | None = None,
         interrupt: Callable[[], bool] | None = None,
         steer: Callable[[], list[str]] | None = None,
+        open_work: Callable[[], str | None] | None = None,
+        open_work_limit: int = 2,
+        effort_boost: str | None = None,
+        effort_boost_steps: int = 3,
     ) -> str:
         """Agentic function-calling loop. Returns the model's final text.
 
@@ -352,7 +356,9 @@ class LLMClient:
             messages, tools, dispatch, max_steps=max_steps, stall_limit=stall_limit, model=model,
             temperature=temperature, reasoning_effort=reasoning_effort, tool_timeout=tool_timeout,
             on_step=on_step, on_call=on_call, on_thought=on_thought, on_usage=on_usage,
-            interrupt=interrupt, steer=steer)
+            interrupt=interrupt, steer=steer, open_work=open_work,
+            open_work_limit=open_work_limit, effort_boost=effort_boost,
+            effort_boost_steps=effort_boost_steps)
 
     async def _run_tool(self, name, fn, args, tool_timeout, interrupt):
         """Run one tool, but let the operator interrupt a long one so their next message is acted on
@@ -409,6 +415,10 @@ class LLMClient:
         on_usage: Callable[[dict], None] | None = None,
         interrupt: Callable[[], bool] | None = None,
         steer: Callable[[], list[str]] | None = None,
+        open_work: Callable[[], str | None] | None = None,
+        open_work_limit: int = 2,
+        effort_boost: str | None = None,
+        effort_boost_steps: int = 3,
     ) -> str:
         """Run the function-calling loop over an EXISTING `messages` list, which is
         mutated in place (assistant/tool turns appended). This is what makes a
@@ -432,6 +442,17 @@ class LLMClient:
         last_result: dict[str, str] = {}
         repeats: dict[str, int] = {}
         nudged: set[str] = set()
+        # Every other guard in this loop pushes the agent to STOP. This one is the only thing
+        # pointed the other way: when the model stops calling tools, `open_work` gets to say
+        # what it left unfinished, and that text goes back as one more user turn. It reports
+        # STATE and never an instruction — what the agent does with "three hypotheses are
+        # still open" is the agent's call. Capped, because an agent that answers it by
+        # stopping again has to be allowed to stop.
+        open_work_shown = 0
+        # Tools that found something say so in their result (`significance: "high"`), because
+        # the tool is what holds the evidence. The loop only converts that into thinking
+        # budget for the next few steps; it has no idea which tools set it or why.
+        effort_until = 0
         # No step budget: runs until the model stops calling tools (it decides it's done).
         # max_steps None or <= 0 means unbounded.
         while max_steps is None or max_steps <= 0 or step < max_steps:
@@ -449,8 +470,9 @@ class LLMClient:
             # Gemini thinking via the OpenAI-compat layer). deepseek-reasoner ignores this and
             # thinks unconditionally, so it's left unset there. Only sent when explicitly asked,
             # since non-reasoning models (e.g. gpt-4o-mini) 400 on an unknown param.
-            if reasoning_effort:
-                payload["reasoning_effort"] = reasoning_effort
+            effort = effort_boost if (effort_boost and step <= effort_until) else reasoning_effort
+            if effort:
+                payload["reasoning_effort"] = effort
             try:
                 data = await self._post(payload)
             except ContextOverflow as overflow:
@@ -503,6 +525,22 @@ class LLMClient:
                     pass
             tool_calls = msg.get("tool_calls") or []
             if not tool_calls:
+                # The agent thinks it is finished. Before taking its word for it, let the
+                # caller say what is still open — an unresolved hypothesis, a service nobody
+                # probed. This is the one place the loop argues for more work rather than
+                # less, so it is deliberately weak: state only, and only `open_work_limit`
+                # times, after which stopping is final even with work outstanding.
+                if open_work is not None and open_work_shown < open_work_limit:
+                    try:
+                        pending = open_work()
+                    except Exception:  # noqa: BLE001 — never let bookkeeping end a run
+                        pending = None
+                    if pending:
+                        open_work_shown += 1
+                        messages.append({"role": "user", "content": str(pending)})
+                        if effort_boost:
+                            effort_until = step + effort_boost_steps
+                        continue
                 return msg.get("content") or ""
             # The only backstop (not a step budget): stop if the agent is genuinely stuck,
             # repeating the identical tool-call batch stall_limit times in a row.
@@ -550,26 +588,51 @@ class LLMClient:
             # ids we've answered and, if the turn is cancelled mid-batch, fill the rest
             # with a synthetic response so the conversation history stays valid.
             answered: set[str] = set()
+            # A model that asks for four port scans in one message means them to happen at
+            # once; running them in sequence was costing the whole batch's wall clock for no
+            # reason. The ordering the provider cares about is the order of the tool
+            # RESPONSES, which is preserved below, not the order the work happened in. Tools
+            # that read the operator's terminal serialize on their own prompt lock, so two
+            # concurrent consent requests queue instead of racing for one line of stdin.
+            parsed: list[tuple[dict, str, dict | None]] = []
+            for tc in tool_calls:
+                raw = tc["function"].get("arguments")
+                try:
+                    args = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                except (json.JSONDecodeError, TypeError):
+                    args = None
+                parsed.append((tc, tc["function"]["name"], args))
             try:
-                for tc in tool_calls:
-                    name = tc["function"]["name"]
-                    raw = tc["function"].get("arguments")
-                    try:
-                        args = json.loads(raw) if isinstance(raw, str) else (raw or {})
-                    except (json.JSONDecodeError, TypeError):
-                        args = None
-                    if on_call is not None:  # announce the action before it runs (slow tools!)
+                if on_call is not None:  # announce every action before any of them runs
+                    for _tc, name, args in parsed:
                         try:
                             await on_call(name, args or {})
                         except Exception:
                             pass
+
+                async def _one(name: str, args: dict | None) -> dict:
                     fn = dispatch.get(name)
                     if args is None:
-                        result = {"error": f"arguments for {name} were not valid JSON — resend valid JSON"}
-                    elif fn is None:
-                        result = {"error": f"unknown tool {name}"}
-                    else:
-                        result = await self._run_tool(name, fn, args, tool_timeout, interrupt)
+                        return {"error": f"arguments for {name} were not valid JSON — resend valid JSON"}
+                    if fn is None:
+                        return {"error": f"unknown tool {name}"}
+                    return await self._run_tool(name, fn, args, tool_timeout, interrupt)
+
+                if len(parsed) == 1:
+                    results = [await _one(parsed[0][1], parsed[0][2])]
+                else:
+                    results = list(await asyncio.gather(
+                        *(_one(name, args) for _tc, name, args in parsed)))
+
+                # strict: gather returns one result per call, so a length mismatch would mean
+                # a tool_call left without a response and a 400 on the next request.
+                for (tc, name, args), result in zip(parsed, results, strict=True):
+                    # A tool that found something says so, and the next few steps get the
+                    # deeper reasoning budget. The tool holds the evidence and is the only
+                    # thing able to judge it; the loop just reads the flag.
+                    if (effort_boost and isinstance(result, dict)
+                            and str(result.get("significance") or "").lower() == "high"):
+                        effort_until = max(effort_until, step + effort_boost_steps)
                     # record the response BEFORE on_step, so a cancel during on_step still counts
                     messages.append({
                         "role": "tool",
