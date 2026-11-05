@@ -105,7 +105,9 @@ THINK BEFORE YOU ACT — reason deeply, do not reflex-call tools:
 - When a step fails or returns nothing, that is evidence — infer WHY (wrong port, filtered egress,
   missing binary, wrong assumption) and change approach. Do not repeat the same call.
 - Hold a running mental model: live hosts, each service + exact version, what you've tried, open
-  hypotheses. note() the non-obvious ones so they persist.
+  hypotheses. The transcript gets compacted on a long run and takes your half-formed suspicions
+  with it; ledger() does not, so record a hypothesis there when you form it and resolve it when
+  you settle it either way.
 
 NARRATE YOUR REASONING: the operator is watching live. Before each batch of tool calls,
 write ONE or TWO short plain-language sentences (as normal message content, not a tool call)

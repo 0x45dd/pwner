@@ -877,6 +877,11 @@ async def param_probe(ctx: ScanContext, args: dict) -> dict:
         "classes_tested": sorted(classes),
         "moved": by_class,
         "interesting": interesting[:40],
+        # The parameter moved the response in a way the baseline does not explain, which is
+        # the one outcome here worth thinking harder about. Read by the agent loop, which
+        # raises the reasoning budget for the next few steps; it is a measurement, not a
+        # finding, and says nothing about whether the thing is exploitable.
+        "significance": "high" if interesting else "low",
         "results": rows,
         "note": ("Every signal is measured against the baseline, so a page that always "
                  "contains a marker does not produce a hit. An empty `interesting` means "

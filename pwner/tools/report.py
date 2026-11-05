@@ -140,39 +140,184 @@ async def get_findings(ctx: ScanContext, args: dict) -> dict:
     return {"findings": ctx.findings}
 
 
-@tool("Your engagement working-memory: surface (open services), creds (+ where tested), "
-      "facts, ranked hypotheses (with status), and what you've tried. action='show' returns it; "
-      "action='update' merges `data` (list fields append+dedup). Review it before deciding the next "
-      "move so you don't circle or leave an obvious lead (a found cred, an untested service) untouched.",
-      {"action": {"type": "string", "enum": ["show", "update", "clear"]},
-       "data": {"type": "object", "description": "fields to merge, e.g. {\"creds\":[...],\"hypotheses\":[...],\"tried\":[...]}"}},
+def open_work_report(ctx: ScanContext) -> str | None:
+    """What the engagement still has outstanding, or None when nothing is.
+
+    Handed to the agent loop at the moment the model stops calling tools. It is a reading of
+    the ledger and nothing else: no judgement about whether the work is worth doing, no
+    suggestion of what to do about it, no mention of tools. The agent put every one of these
+    entries there itself, and deciding that an open hypothesis is not worth chasing is a
+    legitimate answer — which is why this says "still open" and stops talking.
+    """
+    hyp = open_hypotheses(ctx)
+    surface = untested_surface(ctx)
+    if not hyp and not surface:
+        return None
+    lines = ["[ENGAGEMENT STATE] Before this turn ends, what your own ledger still has open:"]
+    if hyp:
+        lines.append(f"\n{len(hyp)} unresolved hypothes{'is' if len(hyp) == 1 else 'es'}:")
+        for h in hyp[:10]:
+            bits = [f"  - [{h.get('id')}] ({h.get('status')}) {h.get('statement')}"]
+            if h.get("test"):
+                bits.append(f"      how you said you would test it: {h['test']}")
+            lines.append("\n".join(bits))
+        if len(hyp) > 10:
+            lines.append(f"  … and {len(hyp) - 10} more")
+    if surface:
+        shown = ", ".join(surface[:12])
+        more = f" … and {len(surface) - 12} more" if len(surface) > 12 else ""
+        lines.append(f"\nRecorded as surface but not mentioned in anything you tried: "
+                     f"{shown}{more}")
+    lines.append("\nResolve what you have settled, chase what you have not, or say plainly "
+                 "why it is not worth chasing. Any of the three ends the turn.")
+    return "\n".join(lines)
+
+
+HYPOTHESIS_STATES = ("open", "testing", "confirmed", "refuted")
+
+
+def _empty_ledger() -> dict:
+    return {"surface": [], "creds": [], "hypotheses": [], "tried": [], "facts": []}
+
+
+def _as_hypothesis(item: object, n: int) -> dict:
+    """Accept a bare sentence or a full record and always store a record.
+
+    The old ledger took hypotheses as free strings, so a session could note "maybe SMB
+    signing is off" and have no way to ever come back to it: no id to resolve, no status to
+    read. Strings are still accepted, because refusing them would just make the agent stop
+    recording the half-formed suspicions that are worth the most; they are promoted here
+    instead.
+    """
+    if isinstance(item, dict):
+        h = dict(item)
+    else:
+        h = {"statement": str(item)}
+    h["statement"] = str(h.get("statement") or "").strip()
+    h["id"] = str(h.get("id") or f"h{n}")
+    status = str(h.get("status") or "open").lower()
+    h["status"] = status if status in HYPOTHESIS_STATES else "open"
+    for k in ("evidence", "test", "note"):
+        h[k] = str(h.get(k) or "").strip()
+    return h
+
+
+def open_hypotheses(ctx: ScanContext) -> list[dict]:
+    led = ctx.ledger or {}
+    return [h for h in (led.get("hypotheses") or [])
+            if isinstance(h, dict) and h.get("status") in ("open", "testing")]
+
+
+def untested_surface(ctx: ScanContext) -> list[str]:
+    """Surface entries that no `tried` entry mentions.
+
+    Deliberately a substring match rather than anything structured: `surface` and `tried`
+    are both free text the agent writes, so the only honest question is whether what it
+    recorded as a service appears anywhere in what it recorded as attempted. Wrong in both
+    directions at the margins, which is why this feeds a prompt-free "here is what looks
+    untouched" report and never a decision.
+    """
+    led = ctx.ledger or {}
+    tried = " ".join(str(t).lower() for t in (led.get("tried") or []))
+    out = []
+    for s in (led.get("surface") or []):
+        text = str(s).strip()
+        if text and text.lower() not in tried:
+            out.append(text)
+    return out
+
+
+@tool("Your engagement working-memory: `surface` (open services), `creds` (+ where tested), "
+      "`facts`, `tried`, and `hypotheses` as records you can resolve later. action='show' returns "
+      "it (optional `filter`: {\"status\":\"open\"} or {\"match\":\"text\"}); action='update' merges "
+      "`data` (list fields append+dedup); action='resolve' needs `id` + `status` "
+      "(open|testing|confirmed|refuted) and closes out a hypothesis. A hypothesis survives context "
+      "compaction, so record a suspicion the moment you have it instead of hoping it is still in "
+      "the transcript later.",
+      {"action": {"type": "string", "enum": ["show", "update", "resolve", "clear"]},
+       "data": {"type": "object", "description": "fields to merge, e.g. {\"creds\":[...],\"tried\":[...],\"hypotheses\":[{\"statement\":\"...\",\"evidence\":\"...\",\"test\":\"how I would check\"}]}"},
+       "id": {"type": "string", "description": "hypothesis id, for action='resolve'"},
+       "status": {"type": "string", "enum": list(HYPOTHESIS_STATES)},
+       "note": {"type": "string", "description": "what settled it, for action='resolve'"},
+       "filter": {"type": "object", "description": "narrow action='show': {\"status\":\"open\"} or {\"match\":\"smb\"}"}},
       [],
       scope_exempt=True)
 async def ledger(ctx: ScanContext, args: dict) -> dict:
-    """Your engagement working-memory. Holds what you KNOW (attack `surface`, `creds` + where each was
-    tested, `facts`), your open `hypotheses` (rank them, mark status), and what you've `tried`.
-    action='show' (default) returns it; action='update' merges `data` in (list fields append+dedup,
-    scalars overwrite). Review it before deciding your next move — so you don't re-tread ground or
-    leave an obvious lead (a found credential, an untested open service) untouched."""
+    """Your engagement working-memory, and the only state that outlives context compaction.
+
+    Holds what you KNOW (`surface`, `creds` + where each was tested, `facts`), what you have
+    `tried`, and your `hypotheses` as records with an id, the evidence behind them, how you
+    would test them, and a status. Resolve them as you settle them: an open hypothesis is a
+    question still owed an answer, and it is reported back to you if you try to finish with
+    one outstanding.
+    """
     if ctx.ledger is None:
-        ctx.ledger = {"surface": [], "creds": [], "hypotheses": [], "tried": [], "facts": []}
+        ctx.ledger = _empty_ledger()
     action = str(args.get("action") or "show").lower()
+
+    if action == "clear":
+        ctx.ledger = _empty_ledger()
+        return {"ledger": ctx.ledger}
+
     if action == "update":
         data = args.get("data")
-        if isinstance(data, dict):
-            for k, v in data.items():
-                if isinstance(v, list):
-                    cur = ctx.ledger.setdefault(k, [])
-                    for item in v:
-                        if item not in cur:
-                            cur.append(item)
-                else:
-                    ctx.ledger[k] = v
-        elif data is not None:
+        if not isinstance(data, dict):
             return {"error": "update needs `data` as an object"}
-    elif action == "clear":
-        ctx.ledger = {"surface": [], "creds": [], "hypotheses": [], "tried": [], "facts": []}
-    return {"ledger": ctx.ledger}
+        for k, v in data.items():
+            if k == "hypotheses":
+                cur = ctx.ledger.setdefault("hypotheses", [])
+                have = {str(h.get("statement", "")).lower() for h in cur if isinstance(h, dict)}
+                for item in (v if isinstance(v, list) else [v]):
+                    h = _as_hypothesis(item, len(cur) + 1)
+                    if not h["statement"] or h["statement"].lower() in have:
+                        continue
+                    # An id the agent reused would silently overwrite the earlier one.
+                    if any(isinstance(e, dict) and e.get("id") == h["id"] for e in cur):
+                        h["id"] = f"h{len(cur) + 1}"
+                    cur.append(h)
+                    have.add(h["statement"].lower())
+            elif isinstance(v, list):
+                cur = ctx.ledger.setdefault(k, [])
+                for item in v:
+                    if item not in cur:
+                        cur.append(item)
+            else:
+                ctx.ledger[k] = v
+
+    elif action == "resolve":
+        hid = str(args.get("id") or "").strip()
+        status = str(args.get("status") or "").lower()
+        if not hid:
+            return {"error": "resolve needs `id`"}
+        if status not in HYPOTHESIS_STATES:
+            return {"error": f"status must be one of {', '.join(HYPOTHESIS_STATES)}"}
+        for h in (ctx.ledger.get("hypotheses") or []):
+            if isinstance(h, dict) and h.get("id") == hid:
+                h["status"] = status
+                note = str(args.get("note") or "").strip()
+                if note:
+                    h["note"] = note
+                return {"resolved": h, "open_hypotheses": len(open_hypotheses(ctx))}
+        return {"error": f"no hypothesis with id {hid!r}",
+                "ids": [h.get("id") for h in (ctx.ledger.get("hypotheses") or [])
+                        if isinstance(h, dict)]}
+
+    # show, and the tail of update/resolve
+    view = dict(ctx.ledger)
+    f = args.get("filter")
+    if isinstance(f, dict) and f:
+        hyp = [h for h in (view.get("hypotheses") or []) if isinstance(h, dict)]
+        want = str(f.get("status") or "").lower()
+        if want:
+            hyp = [h for h in hyp if h.get("status") == want]
+        match = str(f.get("match") or "").lower()
+        if match:
+            hyp = [h for h in hyp if match in json.dumps(h, default=str).lower()]
+            for key in ("surface", "creds", "tried", "facts"):
+                view[key] = [x for x in (view.get(key) or [])
+                             if match in json.dumps(x, default=str).lower()]
+        view["hypotheses"] = hyp
+    return {"ledger": view, "open_hypotheses": len(open_hypotheses(ctx))}
 
 
 # Install hints per package manager. The point of keying these by platform is that a hint

@@ -141,6 +141,23 @@ def _consent_granted(ctx: ScanContext) -> bool:
     return any(r.get("decision") == "approved" for r in ctx.consent_requests)
 
 
+def _prompt_lock() -> asyncio.Lock:
+    """One lock per event loop, guarding every prompt that reads the operator's terminal.
+
+    Tool calls in one batch run concurrently, so without this two tools asking at the same
+    moment would print over each other and race for a single line of stdin — the operator
+    would see two questions and answer one, and which one got the answer would be luck. The
+    lock is keyed on the running loop because an `asyncio.Lock` binds to the loop that first
+    awaits it, and the test suite creates a fresh loop per `asyncio.run`.
+    """
+    loop = asyncio.get_running_loop()
+    lock = getattr(loop, "_pwner_prompt_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        loop._pwner_prompt_lock = lock  # type: ignore[attr-defined]
+    return lock
+
+
 async def _ask_consent(ctx: ScanContext, action: str, target: str, risk: str) -> bool:
     """Prompt the operator interactively for a high-impact action. Falls back to
     auto-approve/auto-deny in non-interactive mode."""
@@ -154,11 +171,17 @@ async def _ask_consent(ctx: ScanContext, action: str, target: str, risk: str) ->
             f"     risk:   {risk}\n"
             f"     approve? [y/N] ")
     try:
-        ch = ctx.operator_channel
-        if ch is not None:
-            ans = await ch.consent(text)
-        else:
-            ans = await asyncio.to_thread(input, text)
+        async with _prompt_lock():
+            # Re-check inside the lock: while this call waited its turn the operator may
+            # already have approved the batch's first request, and session-wide consent
+            # means asking again would be asking a question already answered.
+            if _consent_granted(ctx):
+                return True
+            ch = ctx.operator_channel
+            if ch is not None:
+                ans = await ch.consent(text)
+            else:
+                ans = await asyncio.to_thread(input, text)
     except (EOFError, KeyboardInterrupt, asyncio.CancelledError):
         ans = ""
     return (ans or "").strip().lower() in ("y", "yes", "a", "approve")
@@ -344,6 +367,11 @@ class ScanContext:
     http_cookies: Any = None      # shared cookie jar so web tools stay logged in across calls
     scheme_cache: dict = field(default_factory=dict)  # (host,port) -> "http"/"https", probed once
     ledger: Any = None            # engagement working-memory (surface/creds/hypotheses/tried)
+    # How hard the model is asked to think. A session knob rather than a launch-time one:
+    # the operator changes it with /effort, and the loop raises it by one notch for a few
+    # steps when a tool reports it found something significant. "" means send nothing,
+    # which is the only safe default — a non-reasoning model 400s on the parameter.
+    reasoning_effort: str = ""
     # Scopes the operator has authorized this session, widest-first in practice. Separate
     # from `target` because `target` moves: narrowing to one host and back again must not
     # count as widening, and `consent_requests` cannot hold these — one approval there is
@@ -647,3 +675,21 @@ def build_dispatch(ctx: ScanContext) -> dict[str, Callable[[dict], Any]]:
     """Tool name -> scope-guarded coroutine, built from the registry. Nothing to keep in
     sync: a @tool-decorated function is dispatchable and guarded by that fact alone."""
     return {name: _guarded(name, entry.fn, ctx) for name, entry in _REGISTRY.items()}
+
+
+# What `reasoning_effort` may be set to, cheapest first. The provider decides what each one
+# costs; pwner only needs the order, so that "one notch harder" means something.
+EFFORT_LEVELS = ("low", "medium", "high")
+
+
+def effort_boost(effort: str) -> str:
+    """One notch harder than `effort`, for the steps right after something turned up.
+
+    An unset effort boosts to "medium" rather than to nothing: the default has to stay
+    unset, because a model that does not know the parameter answers 400 to it, but once a
+    tool has reported a real signal the extra deliberation is worth the risk of asking.
+    """
+    cur = (effort or "").strip().lower()
+    if cur not in EFFORT_LEVELS:
+        return "medium"
+    return EFFORT_LEVELS[min(EFFORT_LEVELS.index(cur) + 1, len(EFFORT_LEVELS) - 1)]

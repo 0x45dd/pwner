@@ -262,6 +262,24 @@ The model has to support tool calling. `pwner chat --help` lists the presets and
 override; each preset's default model is in [`pwner/llm.py`](https://github.com/0x45dd/pwner/blob/main/pwner/llm.py). Model names move
 too fast to be worth pinning in a README.
 
+### How hard it thinks
+
+`/effort low|medium|high|off` sets the reasoning budget for the rest of the session, and
+`off` is the default: a model that does not implement `reasoning_effort` answers 400 to it
+rather than ignoring it, so nothing is sent unless you ask. It is not saved to your config,
+because the right setting depends on what you are doing right now.
+
+Two things raise it on their own, both by one notch and only for a few steps. A tool that
+found something says so in its result, so a `param_probe` that moved the response or a
+segmentation test that did not hold buys more deliberation for the turns that read it. And
+when the agent stops calling tools while your ledger still has an unresolved hypothesis or
+a service nothing has touched, that state goes back to it once, with more budget to answer.
+
+That last one is the only thing in the loop arguing for more work rather than less: the
+other three guards all exist to stop an agent that is spinning. It reports state and never
+an instruction, it is capped, and deciding a hypothesis is not worth chasing is a complete
+answer — so it makes a shallow stop visible without making it impossible.
+
 ### On your own hardware
 
 `ollama` and `lemonade` are presets too, and a local endpoint needs **no API key** — if
