@@ -72,7 +72,8 @@ braucht jedes Mal deine Antwort, und `--auto-consent` deckt es nicht ab.
 
 **Freigabe-Gate.** Alles Aktive wird verweigert, solange du es in dieser Sitzung nicht
 freigibst. Die Freigabe wird außerhalb des Modells aufgelöst — der Agent kann sich nicht
-selbst freigeben — und in einem nicht-interaktiven Lauf lautet die Antwort immer nein.
+selbst freigeben — und ein nicht-interaktiver Lauf verweigert sie, sofern du ihn nicht mit
+`--auto-consent` gestartet hast.
 
 Eine Verweigerung ist kein Fehler, der den Lauf abbricht: sie geht als Tool-Ergebnis an das
 Modell zurück, sodass der Agent lernt, dass er zu weit gegriffen hat, und innerhalb der

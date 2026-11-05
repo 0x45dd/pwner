@@ -103,11 +103,12 @@ action does not buy it, `--auto-consent` does not cover it, and a non-interactiv
 refuses it outright.
 
 **Consent gate.** Anything active is denied unless you approve it in that session. The agent
-cannot self-approve — consent is resolved outside the model, and in a non-interactive run
-the answer is always no.
+cannot self-approve — consent is resolved outside the model — and a non-interactive run
+refuses it unless you launched it with `--auto-consent`.
 
 These two are the part of the codebase under the most test: 77 tests on the scope boundary
-in [`tests/test_scope.py`](tests/test_scope.py) and 13 on the consent gate in
+in [`tests/test_scope.py`](tests/test_scope.py), 32 more on the scope-change gate in
+[`tests/test_scope_change.py`](tests/test_scope_change.py), and 13 on the consent gate in
 [`tests/test_consent.py`](tests/test_consent.py), out of 725 overall. If you are going to
 read one thing before pointing this at a network, read those.
 

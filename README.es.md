@@ -73,7 +73,7 @@ vez, y `--auto-consent` no lo cubre.
 
 **Puerta de consentimiento.** Todo lo activo se deniega salvo que lo apruebes en esa sesión.
 El consentimiento se resuelve fuera del modelo —el agente no puede aprobarse a sí mismo— y
-en una ejecución no interactiva la respuesta es siempre no.
+una ejecución no interactiva lo deniega salvo que la hayas lanzado con `--auto-consent`.
 
 Una denegación no es un error que detenga la ejecución: vuelve al modelo como resultado de
 la herramienta, así que el agente aprende que se excedió y continúa dentro del límite.

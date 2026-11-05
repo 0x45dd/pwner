@@ -65,8 +65,8 @@ Bu yüzden kendi kapısı var: daraltmak serbest, zaten yetkilendirdiğinin dı�
 seferinde senin cevabını istiyor, ve `--auto-consent` bunu kapsamıyor.
 
 **Onay kapısı.** Aktif olan her şey, o oturumda sen onaylamadıkça reddedilir. Onay modelin
-dışında çözülür — ajan kendi kendini onaylayamaz — ve etkileşimsiz bir çalıştırmada cevap
-her zaman hayır.
+dışında çözülür — ajan kendi kendini onaylayamaz — ve etkileşimsiz bir çalıştırma, onu
+`--auto-consent` ile başlatmadıysan reddeder.
 
 Reddedilme, çalışmayı durduran bir hata değildir: modele tool sonucu olarak geri döner,
 böylece ajan sınırı aştığını öğrenir ve sınırın içinde devam eder.
