@@ -84,7 +84,7 @@ Grenze weitermacht.
 
 Das ist der am stärksten getestete Teil der Codebasis: 77 Tests auf die Scope-Grenze in
 [`tests/test_scope.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_scope.py) und 13 auf das Freigabe-Gate in
-[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py), von 725 insgesamt. Wenn du vor dem ersten
+[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py), von 785 insgesamt. Wenn du vor dem ersten
 Einsatz gegen ein Netzwerk nur eine Sache lesen willst, lies diese.
 
 Vorgesehener Einsatz:

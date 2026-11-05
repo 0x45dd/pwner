@@ -76,7 +76,7 @@ hydra など）、確認された検出結果を深刻度・証跡・修正方�
 
 ここはコードベースの中で最もテストが厚い部分です。スコープ境界に
 [`tests/test_scope.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_scope.py) の 77 件、承認ゲートに
-[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py) の 13 件、全体 725 件のうちの内訳です。
+[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py) の 13 件、全体 785 件のうちの内訳です。
 これをネットワークに向ける前に 1 つだけ読むなら、この 2 つを読んでください。
 
 想定している用途:

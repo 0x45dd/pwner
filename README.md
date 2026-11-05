@@ -112,7 +112,7 @@ refuses it unless you launched it with `--auto-consent`.
 These two are the part of the codebase under the most test: 77 tests on the scope boundary
 in [`tests/test_scope.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_scope.py), 32 more on the scope-change gate in
 [`tests/test_scope_change.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_scope_change.py), and 13 on the consent gate in
-[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py), out of 725 overall. If you are going to
+[`tests/test_consent.py`](https://github.com/0x45dd/pwner/blob/main/tests/test_consent.py), out of 785 overall. If you are going to
 read one thing before pointing this at a network, read those.
 
 Intended use:
